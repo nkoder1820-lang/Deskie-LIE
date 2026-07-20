@@ -177,11 +177,16 @@ const CHANNEL_META: { key: string; label: string; icon: string }[] = [
 export function channelLinks(b: Business): Record<string, string> {
   const links: Record<string, string> = {};
   if (b.website) links.website = b.website;
-  if (b.whatsapp_link) {
+  // Fall back to the main business phone when no dedicated WhatsApp number
+  // was detected — most SMB lines do have WhatsApp active, and wa.me just
+  // no-ops harmlessly if not, so this only ever adds coverage.
+  const waNumber = b.whatsapp || b.phone;
+  if (waNumber) {
     const msg = b.report?.whatsapp_message;
+    const digits = waNumber.replace(/[^\d+]/g, "").replace(/^\+/, "");
     links.whatsapp = msg
-      ? `${b.whatsapp_link}?text=${encodeURIComponent(msg)}`
-      : b.whatsapp_link;
+      ? `https://wa.me/${digits}?text=${encodeURIComponent(msg)}`
+      : `https://wa.me/${digits}`;
   }
   const socials = b.social_links || {};
   for (const k of ["instagram", "facebook", "linkedin", "twitter", "youtube", "tiktok", "yelp"]) {

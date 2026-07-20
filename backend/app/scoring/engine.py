@@ -21,12 +21,22 @@ logger = logging.getLogger(__name__)
 
 
 # ── Output Types ────────────────────────────────────────────────────────────
+def ev(text: str, url: Optional[str] = None, label: Optional[str] = None) -> dict:
+    """
+    One evidence bullet. `url` is a REAL link backing the claim (their
+    website, Google Maps reviews, an actual job posting) — never a guess,
+    left None when we have nothing concrete to point at. This is what lets
+    a cold caller verify a claim before repeating it to a prospect.
+    """
+    return {"text": text, "source_url": url, "source_label": label}
+
+
 @dataclass
 class ScoreBreakdown:
     """One dimension of scoring with sub-scores and evidence."""
     score: float                        # 0-100
     sub_scores: dict = field(default_factory=dict)
-    evidence: list[str] = field(default_factory=list)
+    evidence: list[dict] = field(default_factory=list)   # [{"text","source_url","source_label"}]
 
 
 @dataclass
@@ -163,17 +173,29 @@ class ScoringEngine:
         sub = {}
         evidence = []
 
+        website_url = business.get("website")
+        maps_url = business.get("maps_url")
+        hiring_sources = enricher.get("hiring_sources") or []
+        hiring_url = hiring_sources[0]["url"] if hiring_sources else None
+        hiring_label = f"View job posting — {hiring_sources[0]['title']}" if hiring_sources else "View job posting"
+
         # Phone Dependency (30%) — no website or no online booking = phone dependent
         phone_dep = 0.0
-        if not business.get("website"):
+        if not website_url:
             phone_dep = 1.0
-            evidence.append("No website detected — customers must call to inquire")
+            evidence.append(ev(
+                "No website detected — customers must call to inquire",
+                maps_url, "See their Google listing",
+            ))
         elif not website.get("booking_available"):
             phone_dep = 0.8
-            evidence.append("Website has no online booking — bookings are phone-based")
+            evidence.append(ev(
+                "Website has no online booking — bookings are phone-based",
+                website_url, "View their website",
+            ))
         elif website.get("phone_dependency_score", 0) > 0.6:
             phone_dep = website["phone_dependency_score"]
-            evidence.append(f"High phone dependency score ({phone_dep:.0%})")
+            evidence.append(ev(f"High phone dependency score ({phone_dep:.0%})", website_url, "View their website"))
         else:
             phone_dep = 0.4
         sub["phone_dependency"] = phone_dep
@@ -182,10 +204,13 @@ class ScoringEngine:
         no_booking = 0.0
         if not website.get("booking_available") and not website.get("whatsapp_available"):
             no_booking = 1.0
-            evidence.append("No online booking or WhatsApp booking detected")
+            evidence.append(ev(
+                "No online booking or WhatsApp booking detected",
+                website_url, "View their website",
+            ))
         elif not website.get("booking_available"):
             no_booking = 0.6
-            evidence.append("Online booking not available on website")
+            evidence.append(ev("Online booking not available on website", website_url, "View their website"))
         else:
             no_booking = 0.1
         sub["no_booking_automation"] = no_booking
@@ -193,19 +218,28 @@ class ScoringEngine:
         # Negative Call Reviews (20%)
         call_pain = min(1.0, review.get("call_pain_score", 0))
         if call_pain > 0.5:
-            evidence.append(f"Reviews mention call/booking pain ({len(review.get('evidence', []))} signals)")
+            evidence.append(ev(
+                f"Reviews mention call/booking pain ({len(review.get('evidence', []))} signals)",
+                maps_url, "See the reviews on Google Maps",
+            ))
         sub["negative_call_reviews"] = call_pain
 
-        # Receptionist Hiring (20%) — from enricher
+        # Receptionist Hiring (20%) — from enricher, backed by the real job posting
         hiring = 1.0 if enricher.get("is_hiring_receptionist") else (0.5 if enricher.get("is_hiring_any") else 0.0)
         if hiring > 0:
-            evidence.append("Business is actively hiring receptionist/front-desk staff")
+            evidence.append(ev(
+                "Business is actively hiring receptionist/front-desk staff",
+                hiring_url, hiring_label,
+            ))
         sub["receptionist_hiring"] = hiring
 
         # Extended Hours (10%)
         extended = 1.0 if has_extended_hours(business.get("opening_hours")) else 0.0
         if extended:
-            evidence.append("Business operates extended/late hours — after-hours call handling needed")
+            evidence.append(ev(
+                "Business operates extended/late hours — after-hours call handling needed",
+                maps_url, "See hours on Google Maps",
+            ))
         sub["extended_hours"] = extended
 
         # After-Hours Leak (10%)
@@ -213,7 +247,10 @@ class ScoringEngine:
         after_hours_leak = 0.0
         if not is_7d and not website.get("booking_available"):
             after_hours_leak = 1.0
-            evidence.append("Closed on some days/nights with no online booking to catch leads")
+            evidence.append(ev(
+                "Closed on some days/nights with no online booking to catch leads",
+                maps_url, "See hours on Google Maps",
+            ))
         sub["after_hours_leak"] = after_hours_leak
 
         weights = PAIN_SIGNALS
@@ -227,17 +264,19 @@ class ScoringEngine:
         sub = {}
         evidence = []
 
-        # Industry Value (30%)
+        maps_url = business.get("maps_url")
+
+        # Industry Value (30%) — internal scoring definition, nothing external to link
         category = business.get("category", "default")
         industry_val = industry_value(category)
         sub["industry_value"] = industry_val
-        evidence.append(f"Industry: {category.replace('_', ' ').title()} (value={industry_val:.0%})")
+        evidence.append(ev(f"Industry: {category.replace('_', ' ').title()} (value={industry_val:.0%})"))
 
-        # Location Tier (20%)
+        # Location Tier (20%) — internal scoring definition, nothing external to link
         city = business.get("city", "default")
         loc_tier = location_tier(city)
         sub["location_tier"] = loc_tier
-        evidence.append(f"City: {city} (tier={loc_tier:.0%})")
+        evidence.append(ev(f"City: {city} (tier={loc_tier:.0%})"))
 
         # Review Volume (20%) — proxy for demand
         review_count = business.get("review_count", 0) or 0
@@ -252,7 +291,7 @@ class ScoringEngine:
         else:
             review_vol = 0.2
         sub["review_volume"] = review_vol
-        evidence.append(f"{review_count} Google reviews (demand proxy)")
+        evidence.append(ev(f"{review_count} Google reviews (demand proxy)", maps_url, "See Google Reviews"))
 
         # Customer Value (20%) — from value_result or industry default
         cust_val = value.get("customer_value_score", industry_val * 0.8)
@@ -262,7 +301,7 @@ class ScoringEngine:
         rating = business.get("rating") or 0
         if review_count > 500 and rating >= 4.0:
             biz_size = 0.9
-            evidence.append("Established business: high reviews + good rating")
+            evidence.append(ev("Established business: high reviews + good rating", maps_url, "See Google Reviews"))
         elif review_count > 100:
             biz_size = 0.6
         else:
@@ -280,31 +319,41 @@ class ScoringEngine:
         sub = {}
         evidence = []
 
+        website_url = business.get("website")
+
         # Has Website (20%)
-        has_web = 1.0 if business.get("website") else 0.0
+        has_web = 1.0 if website_url else 0.0
         sub["has_website"] = has_web
         if has_web:
-            evidence.append(f"Website: {business.get('website')}")
+            evidence.append(ev(f"Website: {website_url}", website_url, "Visit website"))
         else:
-            evidence.append("No website — very low digital maturity")
+            evidence.append(ev("No website — very low digital maturity"))
 
-        # Runs Ads (30%)
+        # Runs Ads (30%) — heuristic from ad-tracking pixels found in their own site source
         runs_ads = website.get("runs_ads", 0.0)
         sub["runs_ads"] = runs_ads
         if runs_ads > 0.5:
-            evidence.append("Ads detected (Google/Meta) — business invests in acquisition")
+            evidence.append(ev(
+                "Ads detected (Google/Meta) — business invests in acquisition",
+                website_url, "View their website source",
+            ))
 
         # Social Activity (20%)
         social_score = min(1.0, social.get("activity_score", 0.0))
         sub["social_activity"] = social_score
         if social_score > 0.5:
-            evidence.append(f"Active social presence (score={social_score:.0%})")
+            # website["socials"] (from the contact-extractor crawl) is far more
+            # reliably populated than business["social_links"] (Places API,
+            # rarely has these) at the point scoring runs.
+            socials = website.get("socials") or business.get("social_links") or {}
+            social_url = socials.get("instagram") or socials.get("facebook")
+            evidence.append(ev(f"Active social presence (score={social_score:.0%})", social_url, "View their social profile"))
 
         # Existing Software (20%) — using software = tech adopter
         auto_level = website.get("automation_level", 0.0)
         sub["existing_software"] = min(1.0, auto_level)
         if auto_level > 0.5:
-            evidence.append("CRM/booking software detected on website")
+            evidence.append(ev("CRM/booking software detected on website", website_url, "View their website"))
 
         # Online Presence (10%)
         web_quality = min(1.0, website.get("website_quality_score", 0.3 if has_web else 0.0))
@@ -321,23 +370,26 @@ class ScoringEngine:
         sub = {}
         evidence = []
 
-        # Is Hiring (30%)
+        # Is Hiring (30%) — backed by the real job posting, when we found one
         is_hiring = 1.0 if enricher.get("is_hiring_any") or value.get("is_hiring") else 0.0
         sub["is_hiring"] = is_hiring
         if is_hiring:
-            evidence.append("Hiring signal detected — business is growing")
+            hiring_sources = enricher.get("hiring_sources") or []
+            hiring_url = hiring_sources[0]["url"] if hiring_sources else None
+            hiring_label = f"View job posting — {hiring_sources[0]['title']}" if hiring_sources else None
+            evidence.append(ev("Hiring signal detected — business is growing", hiring_url, hiring_label))
 
         # Expanding (20%)
         expanding = 1.0 if value.get("is_expanding") else 0.0
         sub["expanding"] = expanding
         if expanding:
-            evidence.append("Expansion signals detected")
+            evidence.append(ev("Expansion signals detected"))
 
         # Marketing Activity (30%)
         mktg = min(1.0, social.get("customer_intent_score", 0.0))
         sub["marketing_activity"] = mktg
         if mktg > 0.5:
-            evidence.append("Active marketing signals in social comments")
+            evidence.append(ev("Active marketing signals in social comments"))
 
         # Recent Growth (20%)
         growth = min(1.0, value.get("recent_growth_score", 0.3))

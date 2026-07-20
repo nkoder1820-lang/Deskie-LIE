@@ -146,7 +146,21 @@ export function BreakdownCard({ label, score, breakdown, weight }: BreakdownCard
             {breakdown.evidence.slice(0, 3).map((e, i) => (
               <li key={i} className="text-xs text-slate-400 flex gap-1.5">
                 <span className="text-indigo-400 mt-0.5 shrink-0">✓</span>
-                <span>{e}</span>
+                <span className="flex-1">
+                  {e.text}
+                  {e.source_url && (
+                    <a
+                      href={e.source_url}
+                      target="_blank"
+                      rel="noopener noreferrer"
+                      title={e.source_label || "Verify this"}
+                      onClick={(ev) => ev.stopPropagation()}
+                      className="text-indigo-400 hover:text-indigo-300 ml-1"
+                    >
+                      🔗
+                    </a>
+                  )}
+                </span>
               </li>
             ))}
           </ul>

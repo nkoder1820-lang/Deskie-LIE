@@ -60,7 +60,10 @@ class ReportGenerator:
 
         return {
             "summary": ai_report.get("summary", self._default_summary(business, scored_lead)),
-            "top_reasons": ai_report.get("top_reasons", scored_lead.pain_breakdown.evidence[:3]),
+            "top_reasons": ai_report.get(
+                "top_reasons",
+                [e["text"] for e in scored_lead.pain_breakdown.evidence[:3]],
+            ),
             "pain_points": ai_report.get("pain_points", []),
             "recommended_pitch": ai_report.get(
                 "recommended_pitch",
@@ -157,11 +160,12 @@ Return ONLY valid JSON:
 Never invent facts not present in the evidence. Return ONLY the JSON."""
 
         people_text = "\n".join(f"- {p['name']} — {p.get('title', 'Decision maker')}" for p in pocs)
+        evidence_texts = [e.get("text", "") if isinstance(e, dict) else str(e) for e in pain_evidence[:4]]
         user = f"""Business: {business.get('name')}
 Industry: {(business.get('category') or '').replace('_', ' ')}
 City: {business.get('city')}
 Deskie fit reason: {qualification_reason}
-Evidence: {'; '.join(str(p) for p in pain_evidence[:4]) or 'n/a'}
+Evidence: {'; '.join(evidence_texts) or 'n/a'}
 
 Decision makers to write for:
 {people_text}"""
@@ -263,7 +267,7 @@ Score Breakdown:
 - Buying Timing: {scored.timing_score}/100
 
 Evidence:
-Pain signals: {', '.join(evidence.get('pain', [])[:3])}
+Pain signals: {', '.join(e['text'] for e in evidence.get('pain', [])[:3])}
 Review signals: {', '.join(evidence.get('reviews', [])[:3])}
 Website signals: {', '.join(evidence.get('website_pain', [])[:3])}
 Willingness to pay: {value_result.get('estimated_willingness_to_pay', 'unknown')}

@@ -133,7 +133,12 @@ export default function LeadDetailPage() {
   const hours = business.opening_hours?.weekday_text as string[] | undefined;
   const links = channelLinks(business);
   const send = outreachLinks(business);
-  const mailto = send.email || (business.email ? `mailto:${business.email}` : null);
+  // Primary: Gmail's own compose URL — a plain https link that always
+  // opens, and Gmail autosaves the open compose window as a draft within
+  // seconds, so this is "saved to Gmail drafts, ready to send" with no
+  // OAuth setup. Fallback: mailto, for people who don't use Gmail.
+  const emailDraft = send.email || null;
+  const emailFallback = send.emailFallback || (business.email ? `mailto:${business.email}` : null);
 
   return (
     <div className="min-h-screen bg-[#0a0f1e] text-white">
@@ -329,6 +334,8 @@ export default function LeadDetailPage() {
                       {(poc.emails[0] || poc.guessed_emails[0]) && (
                         <a
                           href={pocLinks.email}
+                          target="_blank"
+                          rel="noopener noreferrer"
                           title={poc.emails[0] ? poc.emails[0] : `${poc.guessed_emails[0]} (guessed — verify before high-volume sending)`}
                           className="text-xs text-slate-300 hover:text-indigo-300 transition-colors"
                         >
@@ -402,10 +409,19 @@ export default function LeadDetailPage() {
                     title={`✉️ ${draft.name} — ${draft.title || "Decision maker"}`}
                     subject={draft.email_subject}
                     body={draft.email_body}
-                    actionLabel={pocLinks.email ? "Open in email app" : undefined}
+                    actionLabel={pocLinks.email ? "📝 Draft in Gmail" : undefined}
                     actionHref={pocLinks.email}
                     extraAction={
                       <>
+                        {pocLinks.emailFallback && (
+                          <a
+                            href={pocLinks.emailFallback}
+                            title="Open with your default mail app instead"
+                            className="text-xs px-2.5 py-1 border border-white/15 rounded-md text-slate-400 hover:text-white hover:border-white/30 transition-colors"
+                          >
+                            Other app
+                          </a>
+                        )}
                         {pocLinks.whatsapp && (
                           <a
                             href={pocLinks.whatsapp}
@@ -413,7 +429,7 @@ export default function LeadDetailPage() {
                             rel="noopener noreferrer"
                             className="text-xs px-2.5 py-1 border border-white/15 rounded-md text-slate-300 hover:text-white hover:border-white/30 transition-colors"
                           >
-                            WhatsApp →
+                            💬 WhatsApp →
                           </a>
                         )}
                         {email && (
@@ -455,7 +471,7 @@ export default function LeadDetailPage() {
           </h3>
           <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-3">
             {business.email && (
-              <ContactCard label="Email" value={business.email} href={mailto || undefined} copyValue={business.email} />
+              <ContactCard label="Email" value={business.email} href={emailDraft || emailFallback || undefined} copyValue={business.email} />
             )}
             {(business.emails || []).filter((e) => e !== business.email).map((e) => (
               <ContactCard key={e} label="Alt email" value={e} href={`mailto:${e}`} copyValue={e} />
@@ -496,25 +512,36 @@ export default function LeadDetailPage() {
                   title="✉️ Cold Email"
                   subject={report.outreach_subject}
                   body={report.outreach_email}
-                  actionLabel={mailto ? "Open in email app" : undefined}
-                  actionHref={mailto || undefined}
+                  actionLabel={emailDraft ? "📝 Draft in Gmail" : undefined}
+                  actionHref={emailDraft || undefined}
                   extraAction={
-                    business.email ? (
-                      <button
-                        onClick={handleSendEmail}
-                        disabled={!sendingEnabled || sendState === "sending" || sendState === "sent"}
-                        title={
-                          sendingEnabled
-                            ? `Send via Resend to ${business.email}`
-                            : "Set RESEND_API_KEY + OUTREACH_FROM_EMAIL in backend/.env to enable"
-                        }
-                        className="text-xs px-2.5 py-1 bg-emerald-600 hover:bg-emerald-500 disabled:bg-slate-700 disabled:text-slate-400 rounded-md text-white transition-colors"
-                      >
-                        {sendState === "sending" ? "Sending..." :
-                         sendState === "sent" ? "✓ Sent" :
-                         report.email_sent_at ? "Send again" : "🚀 Send now"}
-                      </button>
-                    ) : undefined
+                    <>
+                      {emailFallback && (
+                        <a
+                          href={emailFallback}
+                          title="Open with your default mail app instead"
+                          className="text-xs px-2.5 py-1 border border-white/15 rounded-md text-slate-400 hover:text-white hover:border-white/30 transition-colors"
+                        >
+                          Other app
+                        </a>
+                      )}
+                      {business.email && (
+                        <button
+                          onClick={handleSendEmail}
+                          disabled={!sendingEnabled || sendState === "sending" || sendState === "sent"}
+                          title={
+                            sendingEnabled
+                              ? `Send via Resend to ${business.email}`
+                              : "Set RESEND_API_KEY + OUTREACH_FROM_EMAIL in backend/.env to enable"
+                          }
+                          className="text-xs px-2.5 py-1 bg-emerald-600 hover:bg-emerald-500 disabled:bg-slate-700 disabled:text-slate-400 rounded-md text-white transition-colors"
+                        >
+                          {sendState === "sending" ? "Sending..." :
+                           sendState === "sent" ? "✓ Sent" :
+                           report.email_sent_at ? "Send again" : "🚀 Send now"}
+                        </button>
+                      )}
+                    </>
                   }
                   footer={
                     sendMsg ? (

@@ -71,10 +71,16 @@ export interface PocOutreach {
   whatsapp_message: string;
 }
 
+export interface EvidenceItem {
+  text: string;
+  source_url: string | null;
+  source_label: string | null;
+}
+
 export interface ScoreBreakdown {
   score: number;
   sub_scores: Record<string, number>;
-  evidence: string[];
+  evidence: EvidenceItem[];
 }
 
 export interface LeadReport {
@@ -199,6 +205,23 @@ export const api = {
     ),
 };
 
+// ── Email + WhatsApp link builders ──────────────────────────────────────────
+//
+// mailto: and sms: rely on the OS having a default handler registered —
+// on a fresh Windows machine (no Outlook set as default) that's usually
+// nobody, so clicking them just does nothing with no visible error. Gmail's
+// own compose URL is a plain https link (always opens), and Gmail
+// autosaves any open compose window as a draft within a couple of seconds —
+// so opening it IS "saving a draft, ready to send" with zero OAuth setup.
+export function gmailComposeLink(to: string, subject: string, body: string): string {
+  const params = new URLSearchParams({ view: "cm", fs: "1", to, su: subject, body });
+  return `https://mail.google.com/mail/?${params.toString()}`;
+}
+
+function whatsappDigits(phone: string): string {
+  return phone.replace(/[^\d+]/g, "").replace(/^\+/, "");
+}
+
 // ── Prefilled outreach links for a specific decision maker (PoC) ────────────
 export function pocOutreachLinks(
   poc: PocContact,
@@ -212,15 +235,17 @@ export function pocOutreachLinks(
   const waMsg = draft?.whatsapp_message || "";
 
   if (email) {
-    links.email = `mailto:${email}?subject=${encodeURIComponent(subject)}&body=${encodeURIComponent(body)}`;
+    links.email = gmailComposeLink(email, subject, body);
+    links.emailFallback = `mailto:${email}?subject=${encodeURIComponent(subject)}&body=${encodeURIComponent(body)}`;
   }
+  // Fall back through PoC's own number → business WhatsApp → main business
+  // phone, so a WhatsApp option shows up for nearly every lead, not only
+  // the ones where we specifically detected a "WhatsApp Business" badge.
   const phone = poc.phones[0] || business.whatsapp || business.phone;
   if (phone) {
-    const digits = phone.replace(/[^\d+]/g, "");
-    links.sms = `sms:${digits}?&body=${encodeURIComponent(waMsg)}`;
-    if (poc.phones[0] || business.whatsapp) {
-      links.whatsapp = `https://wa.me/${digits.replace(/^\+/, "")}?text=${encodeURIComponent(waMsg)}`;
-    }
+    const digits = whatsappDigits(phone);
+    links.whatsapp = `https://wa.me/${digits}?text=${encodeURIComponent(waMsg)}`;
+    links.sms = `sms:${phone.replace(/[^\d+]/g, "")}?&body=${encodeURIComponent(waMsg)}`;
   }
   if (poc.linkedin_url) {
     links.linkedin = poc.linkedin_url;
@@ -238,12 +263,13 @@ export function outreachLinks(b: Business): Record<string, string> {
   const waMsg = b.report?.whatsapp_message || "";
 
   if (b.email) {
-    links.email = `mailto:${b.email}?subject=${encodeURIComponent(subject)}&body=${encodeURIComponent(body)}`;
+    links.email = gmailComposeLink(b.email, subject, body);
+    links.emailFallback = `mailto:${b.email}?subject=${encodeURIComponent(subject)}&body=${encodeURIComponent(body)}`;
   }
-  if (b.whatsapp_link) {
-    links.whatsapp = waMsg
-      ? `${b.whatsapp_link}?text=${encodeURIComponent(waMsg)}`
-      : b.whatsapp_link;
+  const waNumber = b.whatsapp || b.phone;
+  if (waNumber) {
+    const digits = whatsappDigits(waNumber);
+    links.whatsapp = `https://wa.me/${digits}?text=${encodeURIComponent(waMsg)}`;
   }
   if (b.phone) {
     links.sms = `sms:${b.phone.replace(/[^\d+]/g, "")}?&body=${encodeURIComponent(waMsg)}`;
