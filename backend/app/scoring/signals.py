@@ -48,26 +48,83 @@ INDUSTRY_VALUE_MAP = {
     "dermatology_clinics":  0.95,
     "cosmetic_clinics":     0.95,
     "fertility_clinics":    1.0,
+    "med_spas":             0.95,
+    "veterinary_clinics":   0.90,
+    "chiropractors":        0.90,
+    "physiotherapy":        0.85,
+    "law_firms":            0.95,
+    "hvac_services":        0.90,
+    "plumbers":             0.90,
+    "roofing":              0.90,
+    "auto_repair":          0.80,
     "real_estate":          0.85,
+    "property_management":  0.85,
     "coaching_institutes":  0.70,
     "premium_salons":       0.75,
-    "default":              0.60,
+    "restaurants":          0.60,
+    "default":              0.70,
 }
+
+# Keyword fallback so free-text industries ("cosmetic dentist", "immigration
+# lawyer", "hvac repair") still get a sensible value multiplier.
+_INDUSTRY_KEYWORD_VALUES = [
+    (("dental", "dentist", "orthodont"), 1.0),
+    (("fertility", "ivf"), 1.0),
+    (("law", "attorney", "legal"), 0.95),
+    (("derma", "skin", "cosmetic", "aesthetic", "med spa", "medspa", "plastic"), 0.95),
+    (("hvac", "plumb", "roof", "electrician", "pest"), 0.90),
+    (("vet", "animal"), 0.90),
+    (("chiro", "physio", "physical therapy", "ortho"), 0.88),
+    (("clinic", "medical", "doctor", "health"), 0.85),
+    (("real estate", "property", "realtor", "broker"), 0.85),
+    (("auto", "mechanic", "car "), 0.80),
+    (("salon", "spa", "beauty", "barber"), 0.75),
+    (("coaching", "tuition", "academy", "school"), 0.70),
+    (("restaurant", "cafe", "food"), 0.60),
+]
+
+
+def industry_value(category: str | None) -> float:
+    """Value multiplier for a preset key OR free-text industry."""
+    if not category:
+        return INDUSTRY_VALUE_MAP["default"]
+    if category in INDUSTRY_VALUE_MAP:
+        return INDUSTRY_VALUE_MAP[category]
+    low = category.replace("_", " ").lower()
+    for keywords, value in _INDUSTRY_KEYWORD_VALUES:
+        if any(kw in low for kw in keywords):
+            return value
+    return INDUSTRY_VALUE_MAP["default"]
+
 
 # ── Location Tier Multipliers ────────────────────────────────────────────────
 LOCATION_TIER_MAP = {
-    "Mumbai":     1.0,
-    "Delhi":      1.0,
-    "Bangalore":  1.0,
-    "Hyderabad":  0.90,
-    "Chennai":    0.90,
-    "Pune":       0.85,
-    "Kolkata":    0.80,
-    "Ahmedabad":  0.80,
-    "Jaipur":     0.75,
-    "Surat":      0.75,
-    "default":    0.65,
+    # India metros
+    "Mumbai": 1.0, "Delhi": 1.0, "Bangalore": 1.0, "Bengaluru": 1.0,
+    "Hyderabad": 0.90, "Chennai": 0.90, "Pune": 0.85, "Kolkata": 0.80,
+    "Ahmedabad": 0.80, "Jaipur": 0.75, "Surat": 0.75,
+    # US metros (high willingness-to-pay markets)
+    "New York": 1.0, "Los Angeles": 1.0, "San Francisco": 1.0, "Chicago": 0.95,
+    "Houston": 0.95, "Dallas": 0.95, "Miami": 0.95, "Austin": 0.95,
+    "Seattle": 0.95, "Boston": 0.95, "Atlanta": 0.90, "Phoenix": 0.90,
+    "San Diego": 0.90, "Denver": 0.90, "Charlotte": 0.85, "Tampa": 0.85,
+    # Other global hubs
+    "London": 1.0, "Toronto": 0.95, "Sydney": 0.95, "Dubai": 0.95, "Singapore": 0.95,
+    "default": 0.80,
 }
+
+
+def location_tier(city: str | None) -> float:
+    """Tier for exact match or partial match ('Austin, TX' → Austin)."""
+    if not city:
+        return LOCATION_TIER_MAP["default"]
+    if city in LOCATION_TIER_MAP:
+        return LOCATION_TIER_MAP[city]
+    low = city.lower()
+    for known, tier in LOCATION_TIER_MAP.items():
+        if known != "default" and known.lower() in low:
+            return tier
+    return LOCATION_TIER_MAP["default"]
 
 # ── Call Pain Keywords (Review Intelligence) ─────────────────────────────────
 CALL_PAIN_KEYWORDS = [

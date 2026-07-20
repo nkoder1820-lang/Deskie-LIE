@@ -9,7 +9,7 @@ from fastapi.middleware.cors import CORSMiddleware
 
 from app.config import settings
 from app.database import engine, Base
-from app.api import research, businesses
+from app.api import research, businesses, outreach
 
 # Import models to register them with SQLAlchemy
 import app.models.business  # noqa: F401
@@ -29,32 +29,31 @@ async def lifespan(app: FastAPI):
     logger.info("🚀 Deskie LIE starting up...")
     Base.metadata.create_all(bind=engine)
     
-    # Run dynamic schema migrations
+    # Run dynamic schema migrations (idempotent — errors mean column exists)
+    MIGRATIONS = [
+        "ALTER TABLE businesses ADD COLUMN email VARCHAR(256)",
+        "ALTER TABLE businesses ADD COLUMN detected_tech JSON",
+        "ALTER TABLE businesses ADD COLUMN emails JSON",
+        "ALTER TABLE businesses ADD COLUMN phones JSON",
+        "ALTER TABLE businesses ADD COLUMN whatsapp VARCHAR(32)",
+        "ALTER TABLE businesses ADD COLUMN decision_makers JSON",
+        "ALTER TABLE lead_reports ADD COLUMN email_sent_at DATETIME",
+        "ALTER TABLE businesses ADD COLUMN maps_url TEXT",
+        "ALTER TABLE businesses ADD COLUMN contact_form_url TEXT",
+        "ALTER TABLE lead_scores ADD COLUMN pitch_angle VARCHAR(128)",
+        "ALTER TABLE lead_scores ADD COLUMN qualification_reason TEXT",
+        "ALTER TABLE lead_reports ADD COLUMN outreach_subject TEXT",
+        "ALTER TABLE lead_reports ADD COLUMN outreach_email TEXT",
+        "ALTER TABLE lead_reports ADD COLUMN whatsapp_message TEXT",
+    ]
     with engine.begin() as conn:
-        try:
-            conn.execute(text("ALTER TABLE businesses ADD COLUMN email VARCHAR(256)"))
-            logger.info("Added 'email' column to businesses")
-        except Exception:
-            pass
+        for stmt in MIGRATIONS:
+            try:
+                conn.execute(text(stmt))
+                logger.info(f"Migration applied: {stmt}")
+            except Exception:
+                pass
 
-        try:
-            conn.execute(text("ALTER TABLE businesses ADD COLUMN detected_tech JSON"))
-            logger.info("Added 'detected_tech' column to businesses")
-        except Exception:
-            pass
-
-        try:
-            conn.execute(text("ALTER TABLE lead_scores ADD COLUMN pitch_angle VARCHAR(128)"))
-            logger.info("Added 'pitch_angle' column to lead_scores")
-        except Exception:
-            pass
-
-        try:
-            conn.execute(text("ALTER TABLE lead_scores ADD COLUMN qualification_reason TEXT"))
-            logger.info("Added 'qualification_reason' column to lead_scores")
-        except Exception:
-            pass
-            
     logger.info("✅ Database tables ready")
     yield
     logger.info("👋 Deskie LIE shutting down")
@@ -79,6 +78,7 @@ app.add_middleware(
 # Routes
 app.include_router(research.router)
 app.include_router(businesses.router)
+app.include_router(outreach.router)
 
 
 @app.get("/")

@@ -14,7 +14,6 @@ Output JSON:
 """
 import logging
 from typing import Optional
-from app.agents.nvidia_client import call_nvidia
 
 logger = logging.getLogger(__name__)
 
@@ -100,33 +99,18 @@ class SocialIntelligenceAgent:
         rating: Optional[float],
     ) -> float:
         """
-        Use NVIDIA NIM to estimate customer buying intent signals
-        based on business context (no direct social access in MVP).
+        Deterministic intent estimate: appointment-driven industries have high
+        price/booking question intent; busy businesses more so. (Previously an
+        LLM guess — same information, now instant and free.)
         """
-        system = """You are a market intelligence analyst. Based on the business description, estimate how likely customers are to be asking price/booking questions on social media.
-Return ONLY valid JSON:
-{
-  "customer_intent_score": <float 0.0-1.0>,
-  "signals": [<list of likely intent signals for this type of business>],
-  "reasoning": "<one sentence>"
-}
+        from app.scoring.signals import industry_value
 
-intent_score guidance:
-- Dental clinics, cosmetic clinics: 0.7-0.9 (patients always ask price/booking)
-- General retail: 0.3-0.5
-- High-urgency services: 0.8-1.0
-Return ONLY the JSON."""
-
-        user = f"""Business: {business_name}
-Category: {category}
-City: {city}
-Google reviews: {review_count or 'Unknown'}
-Rating: {rating or 'Unknown'}"""
-
-        result = call_nvidia(system, user, max_tokens=256)
-        if result:
-            return min(1.0, float(result.get("customer_intent_score", 0.5)))
-        return 0.4  # Default reasonable value
+        score = 0.2 + industry_value(category) * 0.6
+        if (review_count or 0) >= 200:
+            score += 0.1
+        if rating and rating >= 4.3:
+            score += 0.05
+        return min(1.0, score)
 
     def _collect_signals(self, social_links: dict, activity: float, intent: float) -> list[str]:
         signals = []

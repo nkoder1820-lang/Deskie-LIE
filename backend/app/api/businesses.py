@@ -5,6 +5,7 @@ from fastapi import APIRouter, Depends, HTTPException, Query
 from sqlalchemy.orm import Session, joinedload
 from sqlalchemy import desc
 from typing import Optional
+from urllib.parse import quote
 import logging
 
 logger = logging.getLogger(__name__)
@@ -62,7 +63,12 @@ def list_businesses(
 @router.get("/{business_id}")
 def get_business(business_id: str, db: Session = Depends(get_db)):
     """Get full details for a single business including all research results."""
-    from app.models.business import ResearchResult
+    from uuid import UUID as PyUUID
+
+    try:
+        biz_uuid = PyUUID(business_id)
+    except ValueError:
+        raise HTTPException(status_code=404, detail="Business not found")
 
     business = (
         db.query(Business)
@@ -71,7 +77,7 @@ def get_business(business_id: str, db: Session = Depends(get_db)):
             joinedload(Business.lead_report),
             joinedload(Business.research_results),
         )
-        .filter(Business.id == business_id)
+        .filter(Business.id == biz_uuid)
         .first()
     )
 
@@ -99,7 +105,18 @@ def _serialize_business(b: Business) -> dict:
         "city": b.city,
         "phone": b.phone,
         "email": b.email,
+        "emails": b.emails or [],
+        "phones": b.phones or [],
+        "whatsapp": b.whatsapp,
+        "whatsapp_link": f"https://wa.me/{b.whatsapp.lstrip('+')}" if b.whatsapp else None,
+        "decision_makers": b.decision_makers or [],
+        "linkedin_search": (
+            "https://www.linkedin.com/search/results/people/?keywords="
+            + quote(f'"{b.name}" owner OR manager')
+        ),
         "website": b.website,
+        "maps_url": b.maps_url,
+        "contact_form_url": b.contact_form_url,
         "address": b.address,
         "rating": float(b.rating) if b.rating else None,
         "review_count": b.review_count,
@@ -129,5 +146,9 @@ def _serialize_business(b: Business) -> dict:
             "top_reasons": report.top_reasons,
             "pain_points": report.pain_points,
             "recommended_pitch": report.recommended_pitch,
+            "outreach_subject": report.outreach_subject,
+            "outreach_email": report.outreach_email,
+            "whatsapp_message": report.whatsapp_message,
+            "email_sent_at": report.email_sent_at.isoformat() if report.email_sent_at else None,
         } if report else None,
     }

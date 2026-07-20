@@ -3,31 +3,67 @@
 import { useState } from "react";
 import { api } from "@/lib/api";
 
-const INDUSTRIES = [
-  { key: "dental_clinics", label: "Dental Clinics" },
-  { key: "dermatology_clinics", label: "Dermatology Clinics" },
-  { key: "cosmetic_clinics", label: "Cosmetic Clinics" },
-  { key: "fertility_clinics", label: "Fertility Clinics" },
-  { key: "real_estate", label: "Real Estate" },
-  { key: "coaching_institutes", label: "Coaching Institutes" },
-  { key: "premium_salons", label: "Premium Salons" },
+const INDUSTRY_SUGGESTIONS = [
+  "dental clinics", "med spas", "dermatology clinics", "cosmetic clinics",
+  "fertility clinics", "veterinary clinics", "chiropractors", "law firms",
+  "HVAC services", "plumbers", "roofing contractors", "auto repair",
+  "real estate", "property management", "coaching institutes", "premium salons",
+  "restaurants", "fine dining restaurants",
 ];
 
-const CITIES = [
-  "Mumbai", "Delhi", "Bangalore", "Hyderabad", "Chennai",
-  "Pune", "Kolkata", "Ahmedabad", "Jaipur", "Surat",
+const CITY_SUGGESTIONS = [
+  // India
+  "Mumbai", "Delhi", "Bangalore", "Hyderabad", "Chennai", "Pune",
+  // USA
+  "New York", "Los Angeles", "Chicago", "Houston", "Austin, TX", "Miami",
+  "Dallas", "San Francisco", "Seattle", "Boston", "Atlanta", "Phoenix",
+  // Global
+  "London", "Toronto", "Sydney", "Dubai", "Singapore",
 ];
+
+const COUNTRIES = ["", "India", "USA", "UK", "Canada", "Australia", "UAE", "Singapore"];
 
 interface Props {
   onComplete: () => void;
 }
 
 export default function ResearchForm({ onComplete }: Props) {
-  const [industry, setIndustry] = useState("dental_clinics");
+  const [bulkMode, setBulkMode] = useState(false);
+  const [industry, setIndustry] = useState("dental clinics");
   const [city, setCity] = useState("Mumbai");
+  const [country, setCountry] = useState("");
   const [maxResults, setMaxResults] = useState(10);
   const [loading, setLoading] = useState(false);
   const [status, setStatus] = useState<{ type: "success" | "error"; msg: string } | null>(null);
+  const [bulkProgress, setBulkProgress] = useState<string | null>(null);
+
+  async function pollBulk() {
+    // Poll until the background job completes, refreshing the table as leads land
+    for (;;) {
+      await new Promise((r) => setTimeout(r, 5000));
+      try {
+        const s = await api.bulkStatus();
+        if (s.status === "running") {
+          setBulkProgress(
+            `${s.pairs_done}/${s.total_pairs} searches done — ${s.leads_found} leads so far` +
+            (s.current ? ` (now: ${s.current})` : "")
+          );
+          onComplete();
+        } else {
+          setBulkProgress(null);
+          setStatus({
+            type: "success",
+            msg: `✅ Bulk research complete — ${s.leads_found ?? 0} leads found` +
+              (s.errors?.length ? ` (${s.errors.length} searches failed)` : ""),
+          });
+          onComplete();
+          return;
+        }
+      } catch {
+        // backend briefly unreachable — keep polling
+      }
+    }
+  }
 
   async function handleSubmit(e: React.FormEvent) {
     e.preventDefault();
@@ -35,7 +71,29 @@ export default function ResearchForm({ onComplete }: Props) {
     setStatus(null);
 
     try {
-      const result = await api.runResearch({ industry, city, max_results: maxResults });
+      if (bulkMode) {
+        const industries = industry.split(",").map((s) => s.trim()).filter(Boolean);
+        const cities = city.split(",").map((s) => s.trim()).filter(Boolean);
+        const result = await api.runBulkResearch({
+          industries,
+          cities,
+          country: country || undefined,
+          max_results_per_pair: maxResults,
+        });
+        setStatus({
+          type: "success",
+          msg: `🚀 Bulk job started: ${result.pairs} searches, up to ${result.max_leads} leads. Leads appear in the table as they land.`,
+        });
+        setLoading(false);
+        pollBulk();
+        return;
+      }
+      const result = await api.runResearch({
+        industry,
+        city,
+        country: country || undefined,
+        max_results: maxResults,
+      });
       setStatus({
         type: "success",
         msg: `✅ ${result.message} — ${result.leads_count} leads discovered`,
@@ -53,42 +111,78 @@ export default function ResearchForm({ onComplete }: Props) {
 
   return (
     <div className="bg-white/5 border border-white/10 rounded-2xl p-6">
-      <h2 className="text-lg font-semibold text-white mb-1">New Research Job</h2>
+      <div className="flex items-center justify-between mb-1">
+        <h2 className="text-lg font-semibold text-white">New Research Job</h2>
+        <label className="flex items-center gap-2 text-xs text-slate-300 cursor-pointer select-none">
+          <input
+            type="checkbox"
+            checked={bulkMode}
+            onChange={(e) => setBulkMode(e.target.checked)}
+            className="accent-indigo-600"
+          />
+          Bulk mode (1000s of leads)
+        </label>
+      </div>
       <p className="text-sm text-slate-400 mb-5">
-        Discover and score leads for an industry + city combination.
+        {bulkMode
+          ? "Comma-separate multiple industries and cities — every combination is researched in the background."
+          : "Discover and score leads for any industry, in any city worldwide. Type freely — suggestions are optional."}
       </p>
 
       <form onSubmit={handleSubmit} className="space-y-4">
-        <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
-          <div>
+        <div className="grid grid-cols-1 sm:grid-cols-4 gap-4">
+          <div className={bulkMode ? "sm:col-span-2" : ""}>
             <label className="block text-xs font-medium text-slate-400 mb-1.5 uppercase tracking-wide">
-              Industry
+              {bulkMode ? "Industries (comma-separated)" : "Industry / Niche"}
             </label>
-            <select
+            <input
+              type="text"
+              list="industry-suggestions"
               value={industry}
               onChange={(e) => setIndustry(e.target.value)}
-              className="w-full bg-white/10 border border-white/20 rounded-lg px-3 py-2 text-white text-sm focus:outline-none focus:border-indigo-500 transition-colors"
-            >
-              {INDUSTRIES.map((i) => (
-                <option key={i.key} value={i.key} className="bg-slate-900">
-                  {i.label}
-                </option>
+              placeholder={bulkMode ? "restaurants, med spas, dental clinics" : "e.g. med spas, law firms..."}
+              required
+              className="w-full bg-white/10 border border-white/20 rounded-lg px-3 py-2 text-white text-sm placeholder-slate-500 focus:outline-none focus:border-indigo-500 transition-colors"
+            />
+            <datalist id="industry-suggestions">
+              {INDUSTRY_SUGGESTIONS.map((i) => (
+                <option key={i} value={i} />
               ))}
-            </select>
+            </datalist>
           </div>
 
-          <div>
+          <div className={bulkMode ? "sm:col-span-2" : ""}>
             <label className="block text-xs font-medium text-slate-400 mb-1.5 uppercase tracking-wide">
-              City
+              {bulkMode ? "Cities (comma-separated)" : "City"}
             </label>
-            <select
+            <input
+              type="text"
+              list="city-suggestions"
               value={city}
               onChange={(e) => setCity(e.target.value)}
+              placeholder={bulkMode ? "Austin TX, Miami, Dallas" : "e.g. Austin, TX"}
+              required
+              className="w-full bg-white/10 border border-white/20 rounded-lg px-3 py-2 text-white text-sm placeholder-slate-500 focus:outline-none focus:border-indigo-500 transition-colors"
+            />
+            <datalist id="city-suggestions">
+              {CITY_SUGGESTIONS.map((c) => (
+                <option key={c} value={c} />
+              ))}
+            </datalist>
+          </div>
+
+          <div>
+            <label className="block text-xs font-medium text-slate-400 mb-1.5 uppercase tracking-wide">
+              Country
+            </label>
+            <select
+              value={country}
+              onChange={(e) => setCountry(e.target.value)}
               className="w-full bg-white/10 border border-white/20 rounded-lg px-3 py-2 text-white text-sm focus:outline-none focus:border-indigo-500 transition-colors"
             >
-              {CITIES.map((c) => (
+              {COUNTRIES.map((c) => (
                 <option key={c} value={c} className="bg-slate-900">
-                  {c}
+                  {c || "Auto-detect"}
                 </option>
               ))}
             </select>
@@ -96,12 +190,12 @@ export default function ResearchForm({ onComplete }: Props) {
 
           <div>
             <label className="block text-xs font-medium text-slate-400 mb-1.5 uppercase tracking-wide">
-              Max Results
+              {bulkMode ? "Max per search" : "Max Results"}
             </label>
             <input
               type="number"
               min={1}
-              max={60}
+              max={300}
               value={maxResults}
               onChange={(e) => setMaxResults(Number(e.target.value))}
               className="w-full bg-white/10 border border-white/20 rounded-lg px-3 py-2 text-white text-sm focus:outline-none focus:border-indigo-500 transition-colors"
@@ -126,8 +220,11 @@ export default function ResearchForm({ onComplete }: Props) {
           </button>
           {loading && (
             <p className="text-xs text-slate-400 animate-pulse">
-              Discovering businesses and running all agents... this may take a minute.
+              Discovering businesses and running all agents... this may take a few minutes.
             </p>
+          )}
+          {bulkProgress && (
+            <p className="text-xs text-indigo-300 animate-pulse">🚀 {bulkProgress}</p>
           )}
         </div>
 

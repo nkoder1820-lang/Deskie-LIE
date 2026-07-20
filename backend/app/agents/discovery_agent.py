@@ -30,18 +30,32 @@ class BusinessDiscovery(BaseModel):
     opening_hours: Optional[dict] = None
     social_links: dict = Field(default_factory=dict)
     place_id: Optional[str] = None
+    maps_url: Optional[str] = None
     source: str = "google_places"
 
 
 # ── Industry → Search Query Mapping ─────────────────────────────────
+# These are *suggestions* — any free-text industry works and is passed
+# straight to Places text search after replacing underscores with spaces.
 INDUSTRY_QUERIES = {
     "dental_clinics":      "dental clinic",
     "dermatology_clinics": "dermatology clinic skin clinic",
     "cosmetic_clinics":    "cosmetic clinic aesthetics",
     "fertility_clinics":   "fertility clinic IVF",
+    "med_spas":            "med spa medical spa",
+    "veterinary_clinics":  "veterinary clinic animal hospital",
+    "chiropractors":       "chiropractor chiropractic clinic",
+    "physiotherapy":       "physical therapy physiotherapy clinic",
+    "law_firms":           "law firm attorney office",
+    "hvac_services":       "HVAC heating cooling contractor",
+    "plumbers":            "plumbing company plumber",
+    "roofing":             "roofing contractor",
+    "auto_repair":         "auto repair shop mechanic",
     "real_estate":         "real estate agency property",
+    "property_management": "property management company",
     "coaching_institutes": "coaching institute tuition center",
     "premium_salons":      "premium salon beauty parlour",
+    "restaurants":         "restaurant",
 }
 
 
@@ -54,7 +68,8 @@ class BusinessDiscoveryAgent:
         self.api_key = settings.GOOGLE_PLACES_API_KEY
         self.client = httpx.Client(timeout=15.0)
 
-    def run(self, industry: str, city: str, max_results: int = 20) -> list[BusinessDiscovery]:
+    def run(self, industry: str, city: str, max_results: int = 20,
+            country: str | None = None) -> list[BusinessDiscovery]:
         """
         Main entry point.
         Returns a list of BusinessDiscovery objects.
@@ -64,94 +79,119 @@ class BusinessDiscoveryAgent:
             return self._mock_data(industry, city)
 
         query = INDUSTRY_QUERIES.get(industry, industry.replace("_", " "))
-        search_query = f"{query} in {city}"
+        location = f"{city}, {country}" if country else city
 
-        logger.info(f"[DiscoveryAgent] Querying Places API (New): '{search_query}' (max={max_results})")
+        # A single Places text query caps at ~60 results (3 pages). To go
+        # beyond, fan out over query variants and dedupe by place_id.
+        variants = [f"{query} in {location}"]
+        if max_results > 60:
+            variants += [
+                f"best {query} in {location}",
+                f"top rated {query} {location}",
+                f"{query} near downtown {location}",
+                f"affordable {query} in {location}",
+                f"popular {query} {location}",
+            ]
 
+        businesses: list[BusinessDiscovery] = []
+        seen_ids: set[str] = set()
         try:
-            # Places API (New) Text Search
-            url = "https://places.googleapis.com/v1/places:searchText"
-            headers = {
-                "Content-Type": "application/json",
-                "X-Goog-Api-Key": self.api_key,
-                "X-Goog-FieldMask": (
-                    "places.id,places.displayName,places.formattedAddress,"
-                    "places.internationalPhoneNumber,places.websiteUri,"
-                    "places.rating,places.userRatingCount,places.regularOpeningHours,"
-                    "nextPageToken"
-                )
-            }
-            
-            businesses = []
-            page_token = None
-            
-            while len(businesses) < max_results:
-                payload = {
-                    "textQuery": search_query,
-                    "maxResultCount": min(20, max_results - len(businesses))
-                }
-                if page_token:
-                    payload["pageToken"] = page_token
-
-                resp = self.client.post(url, headers=headers, json=payload)
-                
-                if resp.status_code != 200:
-                    logger.error(f"[DiscoveryAgent] Google Places API returned status {resp.status_code}: {resp.text}")
-                    if not businesses:
-                        logger.warning("[DiscoveryAgent] Falling back to mock data due to API error.")
-                        return self._mock_data(industry, city)
-                    else:
-                        break # return what we have so far
-
-                data = resp.json()
-                places = data.get("places", [])
-
-                if not places:
-                    if not businesses:
-                        logger.info("[DiscoveryAgent] No results found from Places API. Using mock data.")
-                        return self._mock_data(industry, city)
-                    else:
-                        break
-
-                for p in places:
-                    hours_desc = p.get("regularOpeningHours", {}).get("weekdayDescriptions")
-                    open_now = p.get("regularOpeningHours", {}).get("openNow")
-                    opening_hours = None
-                    if hours_desc is not None:
-                        opening_hours = {
-                            "weekday_text": hours_desc,
-                            "open_now": open_now
-                        }
-
-                    name = p.get("displayName", {}).get("text", "Unknown")
-                    
-                    businesses.append(
-                        BusinessDiscovery(
-                            name=name,
-                            category=industry,
-                            city=city,
-                            phone=p.get("internationalPhoneNumber") or p.get("nationalPhoneNumber"),
-                            website=p.get("websiteUri"),
-                            address=p.get("formattedAddress"),
-                            google_rating=p.get("rating"),
-                            review_count=p.get("userRatingCount"),
-                            opening_hours=opening_hours,
-                            place_id=p.get("id"),
-                            source="google_places"
-                        )
-                    )
-                
-                page_token = data.get("nextPageToken")
-                if not page_token:
+            for variant in variants:
+                if len(businesses) >= max_results:
                     break
+                per_variant_cap = min(60, max_results - len(businesses))
+                found = self._search_places(variant, per_variant_cap, industry, city, seen_ids)
+                businesses.extend(found)
+                logger.info(f"[DiscoveryAgent] '{variant}' → +{len(found)} (total {len(businesses)})")
 
-            logger.info(f"[DiscoveryAgent] Successfully fetched {len(businesses)} businesses from Google Places API.")
+            if not businesses:
+                logger.info("[DiscoveryAgent] No results found from Places API. Using mock data.")
+                return self._mock_data(industry, city)
+
+            logger.info(f"[DiscoveryAgent] Fetched {len(businesses)} unique businesses from Google Places API.")
             return businesses
 
         except Exception as e:
             logger.error(f"[DiscoveryAgent] Places API error: {e}")
+            if businesses:
+                return businesses
             logger.warning("[DiscoveryAgent] Falling back to mock data.")
             return self._mock_data(industry, city)
+
+    def _search_places(self, search_query: str, max_results: int,
+                       industry: str, city: str, seen_ids: set[str]) -> list[BusinessDiscovery]:
+        """One Places text-search query with pagination. Dedupes via seen_ids."""
+        url = "https://places.googleapis.com/v1/places:searchText"
+        headers = {
+            "Content-Type": "application/json",
+            "X-Goog-Api-Key": self.api_key,
+            "X-Goog-FieldMask": (
+                "places.id,places.displayName,places.formattedAddress,"
+                "places.internationalPhoneNumber,places.nationalPhoneNumber,"
+                "places.websiteUri,places.googleMapsUri,places.businessStatus,"
+                "places.rating,places.userRatingCount,places.regularOpeningHours,"
+                "nextPageToken"
+            )
+        }
+
+        businesses: list[BusinessDiscovery] = []
+        page_token = None
+
+        while len(businesses) < max_results:
+            payload = {
+                "textQuery": search_query,
+                "maxResultCount": min(20, max_results - len(businesses))
+            }
+            if page_token:
+                payload["pageToken"] = page_token
+
+            resp = self.client.post(url, headers=headers, json=payload)
+            if resp.status_code != 200:
+                logger.error(f"[DiscoveryAgent] Places API status {resp.status_code}: {resp.text[:200]}")
+                break
+
+            data = resp.json()
+            places = data.get("places", [])
+            if not places:
+                break
+
+            for p in places:
+                pid = p.get("id")
+                if p.get("businessStatus") == "CLOSED_PERMANENTLY":
+                    continue
+                if pid and pid in seen_ids:
+                    continue
+                if pid:
+                    seen_ids.add(pid)
+
+                hours_desc = p.get("regularOpeningHours", {}).get("weekdayDescriptions")
+                open_now = p.get("regularOpeningHours", {}).get("openNow")
+                opening_hours = None
+                if hours_desc is not None:
+                    opening_hours = {"weekday_text": hours_desc, "open_now": open_now}
+
+                businesses.append(
+                    BusinessDiscovery(
+                        name=p.get("displayName", {}).get("text", "Unknown"),
+                        category=industry,
+                        city=city,
+                        phone=p.get("internationalPhoneNumber") or p.get("nationalPhoneNumber"),
+                        website=p.get("websiteUri"),
+                        address=p.get("formattedAddress"),
+                        google_rating=p.get("rating"),
+                        review_count=p.get("userRatingCount"),
+                        opening_hours=opening_hours,
+                        place_id=pid,
+                        maps_url=p.get("googleMapsUri"),
+                        source="google_places"
+                    )
+                )
+
+            page_token = data.get("nextPageToken")
+            if not page_token:
+                break
+
+        return businesses
 
     def _mock_data(self, industry: str, city: str) -> list[BusinessDiscovery]:
         """Returns realistic mock data when API key fails or is missing."""

@@ -1,7 +1,7 @@
 "use client";
 
 import { useState, useEffect, useCallback } from "react";
-import { api, Business } from "@/lib/api";
+import { api, Business, outreachLinks } from "@/lib/api";
 import LeadTable from "@/components/LeadTable";
 import ResearchForm from "@/components/ResearchForm";
 
@@ -47,27 +47,56 @@ export default function DashboardPage() {
 
   const handleExportCSV = () => {
     if (businesses.length === 0) return;
+    const q = (v: string | null | undefined) => `"${(v || "").replace(/"/g, '""')}"`;
     const headers = [
-      "Business Name", "City", "Category", "Score", "Priority", "Pitch Angle", 
-      "Qualification Reason", "Email", "Phone", "Website", "Pain Score", "Value Score", "Digital Score", "Timing Score"
+      "Business Name", "City", "Category", "Score", "Priority", "Pitch Angle",
+      "Qualification Reason", "Decision Makers", "Email", "All Emails", "Phone", "All Phones",
+      "WhatsApp", "Website", "Instagram", "Facebook", "LinkedIn", "Twitter/X",
+      "YouTube", "Google Maps", "Contact Form", "LinkedIn People Search",
+      "Outreach Subject", "Outreach Email", "WhatsApp Message",
+      "Send Email Link (prefilled)", "Send WhatsApp Link (prefilled)",
+      "Send SMS Link (prefilled)", "Messenger Link",
+      "Pain Score", "Value Score", "Digital Score", "Timing Score"
     ];
-    
-    const rows = businesses.map(b => [
-      `"${(b.name || "").replace(/"/g, '""')}"`,
-      `"${(b.city || "").replace(/"/g, '""')}"`,
-      `"${(b.category || "").replace(/"/g, '""')}"`,
+
+    const rows = businesses.map(b => {
+      const send = outreachLinks(b);
+      return [
+      q(b.name),
+      q(b.city),
+      q(b.category),
       b.score?.final_score || "",
       b.score?.priority || "",
-      `"${(b.score?.pitch_angle || "").replace(/"/g, '""')}"`,
-      `"${(b.score?.qualification_reason || "").replace(/"/g, '""')}"`,
-      `"${(b.email || "").replace(/"/g, '""')}"`,
-      `"${(b.phone || "").replace(/"/g, '""')}"`,
-      `"${(b.website || "").replace(/"/g, '""')}"`,
+      q(b.score?.pitch_angle),
+      q(b.score?.qualification_reason),
+      q((b.decision_makers || []).map(d => `${d.name} (${d.title})`).join("; ")),
+      q(b.email),
+      q((b.emails || []).join("; ")),
+      q(b.phone),
+      q((b.phones || []).join("; ")),
+      q(b.whatsapp),
+      q(b.website),
+      q(b.social_links?.instagram),
+      q(b.social_links?.facebook),
+      q(b.social_links?.linkedin),
+      q(b.social_links?.twitter),
+      q(b.social_links?.youtube),
+      q(b.maps_url || b.social_links?.google_maps),
+      q(b.contact_form_url),
+      q(b.linkedin_search),
+      q(b.report?.outreach_subject),
+      q(b.report?.outreach_email),
+      q(b.report?.whatsapp_message),
+      q(send.email),
+      q(send.whatsapp),
+      q(send.sms),
+      q(send.messenger),
       b.score?.pain_score || "",
       b.score?.business_value_score || "",
       b.score?.digital_score || "",
       b.score?.timing_score || "",
-    ]);
+    ];
+    });
     
     const csvContent = [headers.join(","), ...rows.map(e => e.join(","))].join("\n");
     const blob = new Blob([csvContent], { type: 'text/csv;charset=utf-8;' });

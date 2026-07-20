@@ -7,7 +7,15 @@ export interface Business {
   city: string;
   phone: string | null;
   email: string | null;
+  emails: string[];
+  phones: string[];
+  whatsapp: string | null;
+  whatsapp_link: string | null;
+  decision_makers: { name: string; title: string }[];
+  linkedin_search: string;
   website: string | null;
+  maps_url: string | null;
+  contact_form_url: string | null;
   address: string | null;
   rating: number | null;
   review_count: number | null;
@@ -47,11 +55,16 @@ export interface LeadReport {
   top_reasons: string[] | null;
   pain_points: string[] | null;
   recommended_pitch: string | null;
+  outreach_subject: string | null;
+  outreach_email: string | null;
+  whatsapp_message: string | null;
+  email_sent_at: string | null;
 }
 
 export interface ResearchRequest {
   industry: string;
   city: string;
+  country?: string;
   max_results: number;
 }
 
@@ -108,4 +121,68 @@ export const api = {
 
   getBusiness: (id: string) =>
     apiFetch<Business>(`/api/businesses/${id}`),
+
+  // Bulk research
+  runBulkResearch: (req: {
+    industries: string[];
+    cities: string[];
+    country?: string;
+    max_results_per_pair?: number;
+  }) =>
+    apiFetch<{ status: string; pairs: number; max_leads: number }>(
+      "/api/research/bulk",
+      { method: "POST", body: JSON.stringify(req) }
+    ),
+
+  bulkStatus: () =>
+    apiFetch<{
+      status: string;
+      total_pairs?: number;
+      pairs_done?: number;
+      leads_found?: number;
+      current?: string | null;
+      errors?: string[];
+    }>("/api/research/bulk/status"),
+
+  // Outreach sending
+  outreachConfig: () =>
+    apiFetch<{ email_sending_enabled: boolean; from_email: string | null }>(
+      "/api/outreach/config"
+    ),
+
+  sendEmail: (businessId: string) =>
+    apiFetch<{ status: string; to: string; email_id: string }>(
+      `/api/outreach/send-email/${businessId}`,
+      { method: "POST", body: JSON.stringify({}) }
+    ),
 };
+
+// ── Prefilled outreach links per platform ────────────────────────────────────
+// Every platform that supports prefilled text gets a ready-to-fire link.
+// (Instagram/LinkedIn DMs don't support prefill — we link to the profile.)
+export function outreachLinks(b: Business): Record<string, string> {
+  const links: Record<string, string> = {};
+  const subject = b.report?.outreach_subject || "";
+  const body = b.report?.outreach_email || "";
+  const waMsg = b.report?.whatsapp_message || "";
+
+  if (b.email) {
+    links.email = `mailto:${b.email}?subject=${encodeURIComponent(subject)}&body=${encodeURIComponent(body)}`;
+  }
+  if (b.whatsapp_link) {
+    links.whatsapp = waMsg
+      ? `${b.whatsapp_link}?text=${encodeURIComponent(waMsg)}`
+      : b.whatsapp_link;
+  }
+  if (b.phone) {
+    links.sms = `sms:${b.phone.replace(/[^\d+]/g, "")}?&body=${encodeURIComponent(waMsg)}`;
+  }
+  const fb = b.social_links?.facebook;
+  if (fb) {
+    const slug = fb.replace(/^https?:\/\/(www\.)?(facebook|fb)\.com\//i, "").split(/[/?]/)[0];
+    if (slug && !/^\d+$/.test(slug) && slug !== "people") {
+      links.messenger = `https://m.me/${slug}`;
+    }
+  }
+  return links;
+}

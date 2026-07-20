@@ -18,7 +18,13 @@ class Business(Base):
     city = Column(String(256), nullable=False)
     phone = Column(String(64))
     email = Column(String(256))
+    emails = Column(JSON, default=list)            # all valid emails found
+    phones = Column(JSON, default=list)            # all valid phones found (E.164)
+    whatsapp = Column(String(32))                  # E.164 WhatsApp number
+    decision_makers = Column(JSON, default=list)   # [{name, title}] from team/about pages
     website = Column(Text)
+    maps_url = Column(Text)                        # Google Maps listing URL
+    contact_form_url = Column(Text)                # page with a contact form
     address = Column(Text)
     rating = Column(Numeric(3, 1))
     review_count = Column(Integer)
@@ -80,6 +86,10 @@ class LeadReport(Base):
     top_reasons = Column(JSON)              # list of strings
     pain_points = Column(JSON)              # list of strings
     recommended_pitch = Column(Text)
+    outreach_subject = Column(Text)         # ready-to-send email subject
+    outreach_email = Column(Text)           # ready-to-send email body
+    whatsapp_message = Column(Text)         # ready-to-send WhatsApp text
+    email_sent_at = Column(DateTime)        # when outreach email was sent (if ever)
     evidence = Column(JSON)                 # raw evidence snippets
     generated_at = Column(DateTime, default=datetime.utcnow)
 

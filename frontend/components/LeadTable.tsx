@@ -53,6 +53,7 @@ export default function LeadTable({ businesses }: Props) {
             <th className="text-left px-4 py-3 font-medium">Pitch Angle</th>
             <th className="text-left px-4 py-3 font-medium hidden lg:table-cell">Email</th>
             <th className="text-left px-4 py-3 font-medium hidden md:table-cell">Phone</th>
+            <th className="text-left px-4 py-3 font-medium">Channels</th>
             <th className="text-center px-4 py-3 font-medium">Score</th>
             <th className="text-center px-4 py-3 font-medium">Priority</th>
             <th className="text-center px-4 py-3 font-medium hidden md:table-cell">Pain</th>
@@ -93,8 +94,11 @@ export default function LeadTable({ businesses }: Props) {
                 <td className="px-4 py-3 hidden md:table-cell">
                   <PhoneCell value={b.phone} />
                 </td>
+                <td className="px-4 py-3">
+                  <ChannelIcons b={b} />
+                </td>
                 <td className="px-4 py-3 text-center">
-                  <span className={`font-bold text-lg ${SCORE_COLOR(finalScore)}`}>
+                  <span className={`font-bold text-lg ${SCORE_COLOR(finalScore ?? null)}`}>
                     {finalScore != null ? finalScore.toFixed(0) : "—"}
                   </span>
                 </td>
@@ -137,6 +141,63 @@ export default function LeadTable({ businesses }: Props) {
 }
 
 // ── Helper sub-components ────────────────────────────────────────────────────
+
+const CHANNEL_META: { key: string; label: string; icon: string }[] = [
+  { key: "website", label: "Website", icon: "🌐" },
+  { key: "whatsapp", label: "WhatsApp", icon: "💬" },
+  { key: "instagram", label: "Instagram", icon: "📸" },
+  { key: "facebook", label: "Facebook", icon: "📘" },
+  { key: "linkedin", label: "LinkedIn", icon: "💼" },
+  { key: "twitter", label: "X / Twitter", icon: "🐦" },
+  { key: "youtube", label: "YouTube", icon: "▶️" },
+  { key: "tiktok", label: "TikTok", icon: "🎵" },
+  { key: "yelp", label: "Yelp", icon: "⭐" },
+  { key: "maps", label: "Google Maps", icon: "📍" },
+  { key: "form", label: "Contact form", icon: "📝" },
+];
+
+export function channelLinks(b: Business): Record<string, string> {
+  const links: Record<string, string> = {};
+  if (b.website) links.website = b.website;
+  if (b.whatsapp_link) {
+    const msg = b.report?.whatsapp_message;
+    links.whatsapp = msg
+      ? `${b.whatsapp_link}?text=${encodeURIComponent(msg)}`
+      : b.whatsapp_link;
+  }
+  const socials = b.social_links || {};
+  for (const k of ["instagram", "facebook", "linkedin", "twitter", "youtube", "tiktok", "yelp"]) {
+    if (socials[k]) links[k] = socials[k];
+  }
+  if (b.maps_url || socials.google_maps) links.maps = b.maps_url || socials.google_maps;
+  if (b.contact_form_url) links.form = b.contact_form_url;
+  return links;
+}
+
+function ChannelIcons({ b }: { b: Business }) {
+  const links = channelLinks(b);
+  const entries = CHANNEL_META.filter((c) => links[c.key]);
+  if (entries.length === 0) {
+    return <span className="text-slate-600 text-xs">—</span>;
+  }
+  return (
+    <div className="flex items-center gap-1 flex-wrap max-w-[170px]">
+      {entries.map((c) => (
+        <a
+          key={c.key}
+          href={links[c.key]}
+          target="_blank"
+          rel="noopener noreferrer"
+          title={c.label}
+          onClick={(e) => e.stopPropagation()}
+          className="text-sm leading-none hover:scale-125 transition-transform"
+        >
+          {c.icon}
+        </a>
+      ))}
+    </div>
+  );
+}
 
 function CopyCell({
   value,

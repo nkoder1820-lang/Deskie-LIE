@@ -1,13 +1,15 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { useEffect, useState, useCallback } from "react";
 import { useParams, useRouter } from "next/navigation";
-import { api, Business } from "@/lib/api";
+import { api, Business, outreachLinks } from "@/lib/api";
 import { ScoreRing, BreakdownCard } from "@/components/ScoreCard";
+import { channelLinks } from "@/components/LeadTable";
 
 const PRIORITY_STYLES: Record<string, string> = {
   HOT: "bg-red-500/20 text-red-400 border border-red-500/40",
   HIGH: "bg-orange-500/20 text-orange-400 border border-orange-500/40",
+  MEDIUM: "bg-yellow-500/20 text-yellow-400 border border-yellow-500/40",
   LOW: "bg-slate-500/20 text-slate-400 border border-slate-500/40",
 };
 
@@ -26,6 +28,9 @@ export default function LeadDetailPage() {
   const router = useRouter();
   const [business, setBusiness] = useState<Business | null>(null);
   const [loading, setLoading] = useState(true);
+  const [sendingEnabled, setSendingEnabled] = useState(false);
+  const [sendState, setSendState] = useState<"idle" | "sending" | "sent" | "error">("idle");
+  const [sendMsg, setSendMsg] = useState<string | null>(null);
 
   useEffect(() => {
     if (params.id) {
@@ -34,7 +39,25 @@ export default function LeadDetailPage() {
         .catch(console.error)
         .finally(() => setLoading(false));
     }
+    api.outreachConfig()
+      .then((c) => setSendingEnabled(c.email_sending_enabled))
+      .catch(() => setSendingEnabled(false));
   }, [params.id]);
+
+  const handleSendEmail = async () => {
+    if (!business?.email) return;
+    if (!window.confirm(`Send the cold email to ${business.email} now?`)) return;
+    setSendState("sending");
+    setSendMsg(null);
+    try {
+      const r = await api.sendEmail(business.id);
+      setSendState("sent");
+      setSendMsg(`Sent to ${r.to}`);
+    } catch (e) {
+      setSendState("error");
+      setSendMsg(e instanceof Error ? e.message : "Send failed");
+    }
+  };
 
   if (loading) {
     return (
@@ -60,6 +83,9 @@ export default function LeadDetailPage() {
   const report = business.report;
   const priority = score?.priority;
   const hours = business.opening_hours?.weekday_text as string[] | undefined;
+  const links = channelLinks(business);
+  const send = outreachLinks(business);
+  const mailto = send.email || (business.email ? `mailto:${business.email}` : null);
 
   return (
     <div className="min-h-screen bg-[#0a0f1e] text-white">
@@ -183,6 +209,159 @@ export default function LeadDetailPage() {
           </div>
         </div>
 
+        {/* Decision Makers */}
+        {((business.decision_makers?.length || 0) > 0 || business.linkedin_search) && (
+          <section>
+            <h3 className="text-sm font-semibold text-slate-300 uppercase tracking-wider mb-3">
+              Decision Makers
+            </h3>
+            <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-3">
+              {(business.decision_makers || []).map((d) => (
+                <div key={d.name} className="bg-white/5 border border-white/10 rounded-xl px-4 py-3">
+                  <p className="text-sm text-white font-medium">{d.name}</p>
+                  <p className="text-xs text-slate-400 mt-0.5">{d.title}</p>
+                  <a
+                    href={`https://www.linkedin.com/search/results/people/?keywords=${encodeURIComponent(`"${d.name}" ${business.city}`)}`}
+                    target="_blank"
+                    rel="noopener noreferrer"
+                    className="text-xs text-indigo-400 hover:text-indigo-300 mt-1 inline-block"
+                  >
+                    Find on LinkedIn →
+                  </a>
+                </div>
+              ))}
+              {business.linkedin_search && (
+                <div className="bg-white/5 border border-dashed border-white/15 rounded-xl px-4 py-3">
+                  <p className="text-xs text-slate-400">Who runs this business?</p>
+                  <a
+                    href={business.linkedin_search}
+                    target="_blank"
+                    rel="noopener noreferrer"
+                    className="text-sm text-indigo-400 hover:text-indigo-300 mt-1 inline-block"
+                  >
+                    Search owner/manager on LinkedIn →
+                  </a>
+                </div>
+              )}
+            </div>
+          </section>
+        )}
+
+        {/* Contact Channels */}
+        <section>
+          <h3 className="text-sm font-semibold text-slate-300 uppercase tracking-wider mb-3">
+            Reach Them Everywhere
+          </h3>
+          <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-3">
+            {business.email && (
+              <ContactCard label="Email" value={business.email} href={mailto || undefined} copyValue={business.email} />
+            )}
+            {(business.emails || []).filter((e) => e !== business.email).map((e) => (
+              <ContactCard key={e} label="Alt email" value={e} href={`mailto:${e}`} copyValue={e} />
+            ))}
+            {business.phone && (
+              <ContactCard label="Phone" value={business.phone} href={`tel:${business.phone}`} copyValue={business.phone} />
+            )}
+            {(business.phones || []).filter((p) => p !== business.phone).map((p) => (
+              <ContactCard key={p} label="Alt phone" value={p} href={`tel:${p}`} copyValue={p} />
+            ))}
+            {business.whatsapp && (
+              <ContactCard label="WhatsApp" value={business.whatsapp} href={links.whatsapp} copyValue={business.whatsapp} />
+            )}
+            {business.website && (
+              <ContactCard label="Website" value={business.website.replace(/^https?:\/\//, "")} href={business.website} copyValue={business.website} />
+            )}
+            {links.maps && <ContactCard label="Google Maps" value="Open listing ↗" href={links.maps} />}
+            {business.contact_form_url && (
+              <ContactCard label="Contact form" value="Open form ↗" href={business.contact_form_url} />
+            )}
+            {Object.entries(business.social_links || {})
+              .filter(([k]) => !["google_maps", "whatsapp"].includes(k))
+              .map(([k, v]) => (
+                <ContactCard key={k} label={k} value={v.replace(/^https?:\/\//, "")} href={v} copyValue={v} />
+              ))}
+          </div>
+        </section>
+
+        {/* Ready-to-send Outreach */}
+        {report && (report.outreach_email || report.whatsapp_message) && (
+          <section>
+            <h3 className="text-sm font-semibold text-slate-300 uppercase tracking-wider mb-3">
+              Ready-to-Send Outreach
+            </h3>
+            <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
+              {report.outreach_email && (
+                <OutreachCard
+                  title="✉️ Cold Email"
+                  subject={report.outreach_subject}
+                  body={report.outreach_email}
+                  actionLabel={mailto ? "Open in email app" : undefined}
+                  actionHref={mailto || undefined}
+                  extraAction={
+                    business.email ? (
+                      <button
+                        onClick={handleSendEmail}
+                        disabled={!sendingEnabled || sendState === "sending" || sendState === "sent"}
+                        title={
+                          sendingEnabled
+                            ? `Send via Resend to ${business.email}`
+                            : "Set RESEND_API_KEY + OUTREACH_FROM_EMAIL in backend/.env to enable"
+                        }
+                        className="text-xs px-2.5 py-1 bg-emerald-600 hover:bg-emerald-500 disabled:bg-slate-700 disabled:text-slate-400 rounded-md text-white transition-colors"
+                      >
+                        {sendState === "sending" ? "Sending..." :
+                         sendState === "sent" ? "✓ Sent" :
+                         report.email_sent_at ? "Send again" : "🚀 Send now"}
+                      </button>
+                    ) : undefined
+                  }
+                  footer={
+                    sendMsg ? (
+                      <p className={`text-xs mt-2 ${sendState === "error" ? "text-red-400" : "text-emerald-400"}`}>
+                        {sendMsg}
+                      </p>
+                    ) : report.email_sent_at ? (
+                      <p className="text-xs mt-2 text-slate-500">
+                        Last sent {new Date(report.email_sent_at).toLocaleString()}
+                      </p>
+                    ) : undefined
+                  }
+                />
+              )}
+              {report.whatsapp_message && (
+                <OutreachCard
+                  title="💬 WhatsApp / SMS"
+                  body={report.whatsapp_message}
+                  actionLabel={send.whatsapp ? "Open in WhatsApp" : undefined}
+                  actionHref={send.whatsapp}
+                  extraAction={
+                    <>
+                      {send.sms && (
+                        <a
+                          href={send.sms}
+                          className="text-xs px-2.5 py-1 border border-white/15 rounded-md text-slate-300 hover:text-white hover:border-white/30 transition-colors"
+                        >
+                          SMS →
+                        </a>
+                      )}
+                      {send.messenger && (
+                        <a
+                          href={send.messenger}
+                          target="_blank"
+                          rel="noopener noreferrer"
+                          className="text-xs px-2.5 py-1 border border-white/15 rounded-md text-slate-300 hover:text-white hover:border-white/30 transition-colors"
+                        >
+                          Messenger →
+                        </a>
+                      )}
+                    </>
+                  }
+                />
+              )}
+            </div>
+          </section>
+        )}
+
         {/* Score Breakdown */}
         <section>
           <h3 className="text-sm font-semibold text-slate-300 uppercase tracking-wider mb-3">
@@ -283,6 +462,123 @@ export default function LeadDetailPage() {
           </section>
         )}
       </main>
+    </div>
+  );
+}
+
+// ── Contact + Outreach cards ────────────────────────────────────────────────
+
+function ContactCard({
+  label,
+  value,
+  href,
+  copyValue,
+}: {
+  label: string;
+  value: string;
+  href?: string;
+  copyValue?: string;
+}) {
+  const [copied, setCopied] = useState(false);
+  const copy = useCallback(() => {
+    if (!copyValue) return;
+    navigator.clipboard.writeText(copyValue).then(() => {
+      setCopied(true);
+      setTimeout(() => setCopied(false), 1500);
+    });
+  }, [copyValue]);
+
+  const isExternal = href ? /^https?:/.test(href) : false;
+  return (
+    <div className="bg-white/5 border border-white/10 rounded-xl px-4 py-3 flex items-center justify-between gap-2">
+      <div className="min-w-0">
+        <p className="text-[10px] text-slate-500 uppercase tracking-wide">{label}</p>
+        {href ? (
+          <a
+            href={href}
+            target={isExternal ? "_blank" : undefined}
+            rel={isExternal ? "noopener noreferrer" : undefined}
+            className="text-sm text-slate-200 hover:text-indigo-300 transition-colors truncate block"
+            title={value}
+          >
+            {value}
+          </a>
+        ) : (
+          <p className="text-sm text-slate-200 truncate" title={value}>{value}</p>
+        )}
+      </div>
+      {copyValue && (
+        <button
+          onClick={copy}
+          title={`Copy ${label}`}
+          className="shrink-0 text-xs text-slate-500 hover:text-indigo-400 transition-colors"
+        >
+          {copied ? "✓" : "⎘"}
+        </button>
+      )}
+    </div>
+  );
+}
+
+function OutreachCard({
+  title,
+  subject,
+  body,
+  actionLabel,
+  actionHref,
+  extraAction,
+  footer,
+}: {
+  title: string;
+  subject?: string | null;
+  body: string;
+  actionLabel?: string;
+  actionHref?: string;
+  extraAction?: React.ReactNode;
+  footer?: React.ReactNode;
+}) {
+  const [copied, setCopied] = useState(false);
+  const copy = useCallback(() => {
+    const full = subject ? `Subject: ${subject}\n\n${body}` : body;
+    navigator.clipboard.writeText(full).then(() => {
+      setCopied(true);
+      setTimeout(() => setCopied(false), 1500);
+    });
+  }, [subject, body]);
+
+  return (
+    <div className="bg-white/5 border border-white/10 rounded-xl p-4 flex flex-col">
+      <div className="flex items-center justify-between mb-2 gap-2 flex-wrap">
+        <h4 className="text-sm font-semibold text-white">{title}</h4>
+        <div className="flex items-center gap-2">
+          <button
+            onClick={copy}
+            className="text-xs px-2.5 py-1 border border-white/15 rounded-md text-slate-300 hover:text-white hover:border-white/30 transition-colors"
+          >
+            {copied ? "✓ Copied" : "⎘ Copy"}
+          </button>
+          {actionLabel && actionHref && (
+            <a
+              href={actionHref}
+              target="_blank"
+              rel="noopener noreferrer"
+              className="text-xs px-2.5 py-1 bg-indigo-600 hover:bg-indigo-500 rounded-md text-white transition-colors"
+            >
+              {actionLabel} →
+            </a>
+          )}
+          {extraAction}
+        </div>
+      </div>
+      {subject && (
+        <p className="text-xs text-slate-400 mb-2">
+          <span className="text-slate-500">Subject:</span> {subject}
+        </p>
+      )}
+      <pre className="text-sm text-slate-300 whitespace-pre-wrap font-sans leading-relaxed flex-1">
+        {body}
+      </pre>
+      {footer}
     </div>
   );
 }

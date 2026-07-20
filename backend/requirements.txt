@@ -14,3 +14,4 @@ asyncpg==0.30.0
 aiohttp==3.11.11
 python-multipart==0.0.19
 tenacity==9.0.0
+phonenumbers==8.13.52

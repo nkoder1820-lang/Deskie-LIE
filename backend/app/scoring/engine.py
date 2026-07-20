@@ -13,6 +13,7 @@ from typing import Optional
 from app.scoring.signals import (
     PAIN_SIGNALS, VALUE_SIGNALS, DIGITAL_SIGNALS, TIMING_SIGNALS,
     INDUSTRY_VALUE_MAP, LOCATION_TIER_MAP, CALL_PAIN_KEYWORDS,
+    industry_value, location_tier,
     has_extended_hours, is_7_days
 )
 
@@ -46,9 +47,9 @@ class ScoredLead:
 
 # ── Classifier ──────────────────────────────────────────────────────────────
 def classify_priority(score: float) -> str:
-    if score >= 90:
+    if score >= 82:
         return "HOT"
-    elif score >= 75:
+    elif score >= 68:
         return "HIGH"
     elif score >= 50:
         return "MEDIUM"
@@ -202,13 +203,13 @@ class ScoringEngine:
 
         # Industry Value (30%)
         category = business.get("category", "default")
-        industry_val = INDUSTRY_VALUE_MAP.get(category, INDUSTRY_VALUE_MAP["default"])
+        industry_val = industry_value(category)
         sub["industry_value"] = industry_val
         evidence.append(f"Industry: {category.replace('_', ' ').title()} (value={industry_val:.0%})")
 
         # Location Tier (20%)
         city = business.get("city", "default")
-        loc_tier = LOCATION_TIER_MAP.get(city, LOCATION_TIER_MAP["default"])
+        loc_tier = location_tier(city)
         sub["location_tier"] = loc_tier
         evidence.append(f"City: {city} (tier={loc_tier:.0%})")
 

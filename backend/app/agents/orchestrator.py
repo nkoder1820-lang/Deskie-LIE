@@ -1,22 +1,23 @@
 """
 Lead Intelligence Orchestrator
 ================================
-Coordinates all agents in sequence for a single business.
-Saves results to PostgreSQL after each agent completes.
+Coordinates all agents for each discovered business.
+Businesses are processed IN PARALLEL (thread pool) — each worker gets its own
+DB session. Results are saved as soon as each business finishes.
 
 Flow:
-  1. Discovery Agent     → find businesses
-  2. For each business:
-     a. Website Agent    → website intelligence
+  1. Discovery Agent     → find businesses (any industry, any country)
+  2. For each business (parallel):
+     a. Website Agent    → website + deep contact intelligence
      b. Review Agent     → review intelligence
      c. Social Agent     → social intelligence
      d. Value Agent      → business value assessment
-     e. Scoring Engine   → calculate score
-     f. Report Generator → generate lead report
-  3. Save all results to DB
+     e. Enricher Agent   → hiring / ads signals
+     f. Scoring Engine   → calculate score
+     g. Report Generator → lead report + sendable outreach (email + WhatsApp)
 """
 import logging
-import json
+from concurrent.futures import ThreadPoolExecutor, as_completed
 from uuid import UUID
 
 from sqlalchemy.orm import Session
@@ -27,17 +28,21 @@ from app.agents.review_agent import ReviewIntelligenceAgent
 from app.agents.social_agent import SocialIntelligenceAgent
 from app.agents.value_agent import BusinessValueAgent
 from app.agents.lead_enricher_agent import LeadEnricherAgent
+from app.agents.contact_extractor import region_from_address
 from app.scoring.engine import ScoringEngine
 from app.reports.generator import ReportGenerator
 from app.models.business import Business, ResearchResult, LeadScore, LeadReport
+from app.database import SessionLocal
 
 logger = logging.getLogger(__name__)
+
+MAX_WORKERS = 6     # concurrent businesses
 
 
 class LeadIntelligenceOrchestrator:
 
     def __init__(self, db: Session):
-        self.db = db
+        self.db = db                    # session for discovery/upserts on the request thread
         self.discovery  = BusinessDiscoveryAgent()
         self.website    = WebsiteIntelligenceAgent()
         self.review     = ReviewIntelligenceAgent()
@@ -47,36 +52,58 @@ class LeadIntelligenceOrchestrator:
         self.scoring    = ScoringEngine()
         self.reporter   = ReportGenerator()
 
-    def run_research(self, industry: str, city: str, max_results: int = 20) -> list[dict]:
+    def run_research(self, industry: str, city: str, max_results: int = 20,
+                     country: str | None = None) -> list[dict]:
         """
-        Full pipeline: discover → research → score → report → save.
+        Full pipeline: discover → research (parallel) → score → report → save.
         Returns list of scored lead summaries.
         """
-        logger.info(f"[Orchestrator] Starting research: {industry} in {city}")
+        logger.info(f"[Orchestrator] Starting research: {industry} in {city}"
+                    + (f", {country}" if country else ""))
 
         # Phase 1: Discovery
-        discovered = self.discovery.run(industry, city, max_results)
+        discovered = self.discovery.run(industry, city, max_results, country=country)
         logger.info(f"[Orchestrator] Discovered {len(discovered)} businesses")
 
+        default_region = region_from_address(country) if country else "IN"
+
+        # Phase 2: Parallel processing — one thread + one DB session per business
         results = []
-        for biz in discovered:
-            try:
-                result = self._process_business(biz)
-                results.append(result)
-            except Exception as e:
-                logger.error(f"[Orchestrator] Failed to process {biz.name}: {e}", exc_info=True)
+        with ThreadPoolExecutor(max_workers=MAX_WORKERS) as pool:
+            futures = {
+                pool.submit(self._process_business_threadsafe, biz, default_region): biz
+                for biz in discovered
+            }
+            for future in as_completed(futures):
+                biz = futures[future]
+                try:
+                    result = future.result()
+                    if result:
+                        results.append(result)
+                except Exception as e:
+                    logger.error(f"[Orchestrator] Failed to process {biz.name}: {e}", exc_info=True)
 
         # Sort by final score descending
         results.sort(key=lambda x: x.get("final_score", 0), reverse=True)
         logger.info(f"[Orchestrator] Research complete. {len(results)} leads scored.")
         return results
 
-    def _process_business(self, biz) -> dict:
+    def _process_business_threadsafe(self, biz, default_region: str) -> dict:
+        """Worker entry point: fresh DB session per thread."""
+        db = SessionLocal()
+        try:
+            return self._process_business(biz, db, default_region)
+        finally:
+            db.close()
+
+    def _process_business(self, biz, db: Session, default_region: str = "IN") -> dict:
         """Process a single discovered business through all agents."""
         logger.info(f"[Orchestrator] Processing: {biz.name}")
 
+        region = region_from_address(biz.address, default=default_region)
+
         # Save or update business record
-        business_record = self._upsert_business(biz)
+        business_record = self._upsert_business(biz, db)
         biz_id = business_record.id
 
         biz_dict = {
@@ -92,44 +119,28 @@ class LeadIntelligenceOrchestrator:
             "social_links": biz.social_links,
         }
 
-        # Phase 2a: Website Intelligence
-        logger.info(f"  → WebsiteAgent")
-        website_result = self.website.run(biz.website, biz.name)
-        self._save_research(biz_id, "website_agent", website_result)
-        
-        # Update business with website scraped data
-        if website_result.get("emails") or website_result.get("detected_tech") or website_result.get("phone_numbers"):
-            business_record = self.db.query(Business).get(biz_id)
-            if website_result.get("emails"):
-                business_record.email = website_result["emails"][0]
-            if website_result.get("detected_tech"):
-                business_record.detected_tech = website_result["detected_tech"]
-            # Phone fallback: if Google Places had no phone, use the website-found number
-            if website_result.get("phone_numbers") and not business_record.phone:
-                business_record.phone = website_result["phone_numbers"][0]
-                logger.info(f"  📞 Phone fallback from website: {business_record.phone}")
-            self.db.commit()
-
+        # Phase 2a: Website + Contact Intelligence
+        # (use_ai=False: heuristics cover these signals; saves an LLM call per lead)
+        website_result = self.website.run(biz.website, biz.name, region=region, use_ai=False)
+        self._save_research(biz_id, "website_agent", website_result, db)
+        self._save_contacts(biz_id, website_result, db)
 
         # Phase 2b: Review Intelligence
-        logger.info(f"  → ReviewAgent")
         review_result = self.review.run(biz.place_id, biz.name)
-        self._save_research(biz_id, "review_agent", review_result)
+        self._save_research(biz_id, "review_agent", review_result, db)
 
         # Phase 2c: Social Intelligence
-        logger.info(f"  → SocialAgent")
         social_result = self.social.run(
             business_name=biz.name,
             city=biz.city,
             category=biz.category,
-            social_links=biz.social_links,
+            social_links=website_result.get("socials") or biz.social_links,
             review_count=biz.review_count,
             rating=float(biz.google_rating) if biz.google_rating else None,
         )
-        self._save_research(biz_id, "social_agent", social_result)
+        self._save_research(biz_id, "social_agent", social_result, db)
 
         # Phase 2d: Business Value
-        logger.info(f"  → ValueAgent")
         value_result = self.value.run(
             business_name=biz.name,
             category=biz.category,
@@ -139,15 +150,13 @@ class LeadIntelligenceOrchestrator:
             website=biz.website,
             opening_hours=biz.opening_hours,
         )
-        self._save_research(biz_id, "value_agent", value_result)
+        self._save_research(biz_id, "value_agent", value_result, db)
 
         # Phase 2e: Lead Enrichment (Hiring/Ads)
-        logger.info(f"  → LeadEnricherAgent")
         enricher_result = self.enricher.run(business_name=biz.name, city=biz.city)
-        self._save_research(biz_id, "lead_enricher_agent", enricher_result)
+        self._save_research(biz_id, "lead_enricher_agent", enricher_result, db)
 
         # Phase 3: Scoring
-        logger.info(f"  → ScoringEngine")
         scored = self.scoring.score(
             business=biz_dict,
             website_result=website_result,
@@ -156,10 +165,9 @@ class LeadIntelligenceOrchestrator:
             value_result=value_result,
             enricher_result=enricher_result,
         )
-        self._save_score(biz_id, scored)
+        self._save_score(biz_id, scored, db)
 
-        # Phase 4: Report
-        logger.info(f"  → ReportGenerator")
+        # Phase 4: Report + sendable outreach
         report = self.reporter.generate(
             business=biz_dict,
             scored_lead=scored,
@@ -168,7 +176,7 @@ class LeadIntelligenceOrchestrator:
             social_result=social_result,
             value_result=value_result,
         )
-        self._save_report(biz_id, report)
+        self._save_report(biz_id, report, db)
 
         logger.info(f"  ✓ {biz.name} → Score: {scored.final_score} ({scored.priority})")
 
@@ -179,6 +187,9 @@ class LeadIntelligenceOrchestrator:
             "category": biz.category,
             "rating": biz_dict["rating"],
             "review_count": biz.review_count,
+            "email": website_result.get("emails", [None])[0] if website_result.get("emails") else None,
+            "whatsapp": website_result.get("whatsapp"),
+            "socials": website_result.get("socials", {}),
             "final_score": scored.final_score,
             "priority": scored.priority,
             "pain_score": scored.pain_score,
@@ -193,20 +204,21 @@ class LeadIntelligenceOrchestrator:
 
     # ── DB Helpers ──────────────────────────────────────────────────────────
 
-    def _upsert_business(self, biz) -> Business:
+    def _upsert_business(self, biz, db: Session) -> Business:
         """Insert or update a business record (deduplicated by place_id)."""
         existing = None
         if biz.place_id:
-            existing = self.db.query(Business).filter_by(place_id=biz.place_id).first()
+            existing = db.query(Business).filter_by(place_id=biz.place_id).first()
 
         if existing:
             existing.name = biz.name
-            existing.phone = biz.phone
-            existing.website = biz.website
+            existing.phone = biz.phone or existing.phone
+            existing.website = biz.website or existing.website
             existing.rating = biz.google_rating
             existing.review_count = biz.review_count
             existing.opening_hours = biz.opening_hours
-            self.db.commit()
+            existing.maps_url = biz.maps_url or existing.maps_url
+            db.commit()
             return existing
         else:
             record = Business(
@@ -221,21 +233,50 @@ class LeadIntelligenceOrchestrator:
                 opening_hours=biz.opening_hours,
                 social_links=biz.social_links,
                 place_id=biz.place_id,
+                maps_url=biz.maps_url,
                 source=biz.source,
             )
-            self.db.add(record)
-            self.db.commit()
-            self.db.refresh(record)
+            db.add(record)
+            db.commit()
+            db.refresh(record)
             return record
 
-    def _save_research(self, business_id: UUID, agent_name: str, result: dict):
+    def _save_contacts(self, business_id: UUID, website_result: dict, db: Session):
+        """Persist every contact channel found by the website/contact agents."""
+        b = db.query(Business).get(business_id)
+        if not b:
+            return
+        emails = website_result.get("emails") or []
+        phones = website_result.get("phone_numbers") or []
+        socials = website_result.get("socials") or {}
+        if emails:
+            b.email = emails[0]
+            b.emails = emails
+        if phones:
+            b.phones = phones
+            if not b.phone:
+                b.phone = phones[0]
+                logger.info(f"  📞 Phone fallback from website: {b.phone}")
+        if website_result.get("whatsapp"):
+            b.whatsapp = website_result["whatsapp"]
+        if website_result.get("decision_makers"):
+            b.decision_makers = website_result["decision_makers"]
+        if socials:
+            b.social_links = {**(b.social_links or {}), **socials}
+        if website_result.get("contact_form_url"):
+            b.contact_form_url = website_result["contact_form_url"]
+        if website_result.get("detected_tech"):
+            b.detected_tech = website_result["detected_tech"]
+        db.commit()
+
+    def _save_research(self, business_id: UUID, agent_name: str, result: dict, db: Session):
         """Save raw agent output to research_results table."""
-        existing = self.db.query(ResearchResult).filter_by(
+        existing = db.query(ResearchResult).filter_by(
             business_id=business_id, agent_name=agent_name
         ).first()
         if existing:
             existing.result_json = result
-            self.db.commit()
+            db.commit()
         else:
             record = ResearchResult(
                 business_id=business_id,
@@ -243,12 +284,12 @@ class LeadIntelligenceOrchestrator:
                 result_json=result,
                 status="success",
             )
-            self.db.add(record)
-            self.db.commit()
+            db.add(record)
+            db.commit()
 
-    def _save_score(self, business_id: UUID, scored):
+    def _save_score(self, business_id: UUID, scored, db: Session):
         """Upsert lead score."""
-        existing = self.db.query(LeadScore).filter_by(business_id=business_id).first()
+        existing = db.query(LeadScore).filter_by(business_id=business_id).first()
 
         def breakdown_dict(bd):
             return {
@@ -274,25 +315,28 @@ class LeadIntelligenceOrchestrator:
         if existing:
             for k, v in data.items():
                 setattr(existing, k, v)
-            self.db.commit()
+            db.commit()
         else:
-            self.db.add(LeadScore(business_id=business_id, **data))
-            self.db.commit()
+            db.add(LeadScore(business_id=business_id, **data))
+            db.commit()
 
-    def _save_report(self, business_id: UUID, report: dict):
-        """Upsert lead report."""
-        existing = self.db.query(LeadReport).filter_by(business_id=business_id).first()
+    def _save_report(self, business_id: UUID, report: dict, db: Session):
+        """Upsert lead report incl. sendable outreach."""
+        existing = db.query(LeadReport).filter_by(business_id=business_id).first()
         data = dict(
             summary=report.get("summary"),
             top_reasons=report.get("top_reasons", []),
             pain_points=report.get("pain_points", []),
             recommended_pitch=report.get("recommended_pitch"),
+            outreach_subject=report.get("outreach_subject"),
+            outreach_email=report.get("outreach_email"),
+            whatsapp_message=report.get("whatsapp_message"),
             evidence=report.get("evidence", {}),
         )
         if existing:
             for k, v in data.items():
                 setattr(existing, k, v)
-            self.db.commit()
+            db.commit()
         else:
-            self.db.add(LeadReport(business_id=business_id, **data))
-            self.db.commit()
+            db.add(LeadReport(business_id=business_id, **data))
+            db.commit()

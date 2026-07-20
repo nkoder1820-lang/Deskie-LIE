@@ -29,22 +29,57 @@ class LeadEnricherAgent:
         # 1. Check Hiring
         hiring_query = f'"{business_name}" {city} (hiring OR jobs OR careers OR receptionist OR "front desk" OR assistant)'
         hiring_results = self._search_serpapi(hiring_query)
-        
+
         # 2. Check Ads
         ads_query = f'"{business_name}" {city}'
         ads_results = self._search_serpapi(ads_query)
 
-        # 3. Parse with NVIDIA NIM
-        parsed_hiring = self._parse_hiring(business_name, hiring_results)
-        parsed_ads = self._parse_ads(business_name, ads_results)
+        # 3. Parse both with a single NVIDIA NIM call
+        parsed = self._parse_combined(business_name, hiring_results, ads_results)
 
         return {
-            "is_hiring_receptionist": parsed_hiring.get("is_hiring_receptionist", False),
-            "is_hiring_any": parsed_hiring.get("is_hiring_any", False),
-            "hiring_evidence": parsed_hiring.get("hiring_evidence", []),
-            "runs_google_ads": parsed_ads.get("runs_google_ads", False),
-            "ads_evidence": parsed_ads.get("ads_evidence", []),
+            "is_hiring_receptionist": parsed.get("is_hiring_receptionist", False),
+            "is_hiring_any": parsed.get("is_hiring_any", False),
+            "hiring_evidence": parsed.get("hiring_evidence", []),
+            "runs_google_ads": parsed.get("runs_google_ads", False),
+            "ads_evidence": parsed.get("ads_evidence", []),
         }
+
+    def _parse_combined(self, business_name: str, hiring_results: dict, ads_results: dict) -> dict:
+        """One LLM call for both hiring and ads signals."""
+        hiring_snippets = []
+        for result in (hiring_results or {}).get("organic_results", [])[:5]:
+            hiring_snippets.append(f"- {result.get('title')}: {result.get('snippet')}")
+        for job in (hiring_results or {}).get("jobs_results", [])[:5]:
+            hiring_snippets.append(f"- JOB POSTING: {job.get('title')} at {job.get('company_name')}")
+
+        ad_snippets = []
+        for ad in (ads_results or {}).get("ads", []):
+            title = ad.get('title') or ad.get('headline') or ''
+            desc = ad.get('description') or ''
+            ad_snippets.append(f"- AD: {title}: {desc}")
+
+        if not hiring_snippets and not ad_snippets:
+            return {}
+
+        system = """You are an intelligence analyst. Based on Google search snippets and ads, determine:
+1. whether the target business is actively hiring (especially receptionist / front-desk roles)
+2. whether the target business itself (not a competitor) is running Google ads
+Return ONLY valid JSON:
+{
+  "is_hiring_receptionist": <boolean>,
+  "is_hiring_any": <boolean>,
+  "hiring_evidence": [<quotes or job titles demonstrating they are hiring>],
+  "runs_google_ads": <boolean>,
+  "ads_evidence": [<ad copy strings from the target business's own ads>]
+}"""
+        user = (
+            f"Target Business: {business_name}\n\n"
+            "Hiring Search Snippets:\n" + ("\n".join(hiring_snippets) or "(none)") + "\n\n"
+            "Ads Found:\n" + ("\n".join(ad_snippets) or "(none)")
+        )
+        result = call_nvidia(system, user, max_tokens=384)
+        return result if result else {}
 
     def _search_serpapi(self, query: str) -> dict:
         try:
@@ -61,54 +96,3 @@ class LeadEnricherAgent:
             logger.error(f"SerpAPI search failed for query '{query}': {e}")
             return {}
 
-    def _parse_hiring(self, business_name: str, search_results: dict) -> dict:
-        if not search_results:
-            return {}
-            
-        snippets = []
-        for result in search_results.get("organic_results", [])[:5]:
-            snippets.append(f"- {result.get('title')}: {result.get('snippet')}")
-        
-        for job in search_results.get("jobs_results", [])[:5]:
-            snippets.append(f"- JOB POSTING: {job.get('title')} at {job.get('company_name')}")
-
-        if not snippets:
-            return {}
-
-        system = """You are an intelligence analyst. Based on the Google search snippets provided, determine if the business is actively hiring.
-Return ONLY valid JSON:
-{
-  "is_hiring_receptionist": <boolean>,
-  "is_hiring_any": <boolean>,
-  "hiring_evidence": [<list of strings (quotes or job titles) demonstrating they are hiring>]
-}"""
-        user = f"Business: {business_name}\nSearch Snippets:\n" + "\n".join(snippets)
-        result = call_nvidia(system, user, max_tokens=256)
-        return result if result else {}
-
-    def _parse_ads(self, business_name: str, search_results: dict) -> dict:
-        if not search_results:
-            return {}
-
-        ads = search_results.get("ads", [])
-        if not ads:
-            return {"runs_google_ads": False, "ads_evidence": []}
-
-        snippets = []
-        for ad in ads:
-            title = ad.get('title') or ad.get('headline') or ''
-            desc = ad.get('description') or ''
-            snippets.append(f"- AD: {title}: {desc}")
-
-        if not snippets:
-            return {"runs_google_ads": False, "ads_evidence": []}
-
-        system = """You are an intelligence analyst. Based on the Google ads provided, determine if the target business is the one running the ad (and not a competitor).
-Return ONLY valid JSON:
-{
-  "runs_google_ads": <boolean>,
-  "ads_evidence": [<list of strings showing the ad copy>]
-}"""
-        user = f"Target Business: {business_name}\nAds Found:\n" + "\n".join(snippets)
-        result = call_nvidia(system, user, max_tokens=256)
-        return result if result else {}
