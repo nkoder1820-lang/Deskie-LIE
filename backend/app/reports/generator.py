@@ -66,6 +66,101 @@ class ReportGenerator:
             "evidence": all_evidence,
         }
 
+    # ── Per-decision-maker outreach drafts ──────────────────────────────────
+    def generate_poc_outreach(
+        self, business: dict, qualification_reason: str, poc_contacts: list[dict],
+        pain_evidence: list[str],
+    ) -> list[dict]:
+        """
+        Personalized-by-name outreach for each decision maker found.
+        One batched LLM call covers up to 3 people; anyone left over (or if
+        the call fails) gets a deterministic template with their name/title
+        filled in, so every PoC always has sendable copy.
+        """
+        if not poc_contacts:
+            return []
+
+        top = poc_contacts[:3]
+        drafts_by_name = self._ai_poc_outreach(business, qualification_reason, top, pain_evidence)
+
+        results = []
+        for poc in poc_contacts:
+            name = poc["name"]
+            ai_draft = drafts_by_name.get(name.lower())
+            if ai_draft and ai_draft.get("email_body"):
+                results.append({
+                    "name": name,
+                    "title": poc.get("title", ""),
+                    "email_subject": str(ai_draft.get("email_subject") or "")[:200],
+                    "email_body": ai_draft.get("email_body", ""),
+                    "whatsapp_message": ai_draft.get("whatsapp_message", ""),
+                })
+            else:
+                results.append(self._fallback_poc_outreach(business, poc))
+        return results
+
+    def _ai_poc_outreach(
+        self, business: dict, qualification_reason: str, pocs: list[dict], pain_evidence: list[str],
+    ) -> dict:
+        system = """You write short, high-converting cold outreach for Deskie, an AI phone receptionist that answers every call 24/7, books appointments, and captures leads a business would otherwise miss.
+You will be given a business and a list of named decision makers at that business. Write ONE personalized draft PER PERSON, addressed to them by first name.
+Return ONLY valid JSON:
+{
+  "drafts": [
+    {
+      "name": "<exact name as given>",
+      "email_subject": "<under 60 chars>",
+      "email_body": "<80-120 words. Open with their first name. Reference their role and one specific observation about the business. 1 sentence on cost of missed calls. 1 sentence on what Deskie does. Single CTA for a 10-min call. Sign off 'The Deskie Team'. No placeholders — sendable as-is.>",
+      "whatsapp_message": "<under 60 words, casual, opens with first name, ends with a soft question>"
+    }
+  ]
+}
+Never invent facts not present in the evidence. Return ONLY the JSON."""
+
+        people_text = "\n".join(f"- {p['name']} — {p.get('title', 'Decision maker')}" for p in pocs)
+        user = f"""Business: {business.get('name')}
+Industry: {(business.get('category') or '').replace('_', ' ')}
+City: {business.get('city')}
+Deskie fit reason: {qualification_reason}
+Evidence: {'; '.join(str(p) for p in pain_evidence[:4]) or 'n/a'}
+
+Decision makers to write for:
+{people_text}"""
+
+        result = call_nvidia(system, user, max_tokens=900, temperature=0.4)
+        drafts = (result or {}).get("drafts", [])
+        return {
+            str(d.get("name", "")).lower(): d
+            for d in drafts if isinstance(d, dict) and d.get("name")
+        }
+
+    def _fallback_poc_outreach(self, business: dict, poc: dict) -> dict:
+        first_name = poc["name"].split()[0]
+        name = business.get("name", "your business")
+        city = business.get("city", "")
+        category = (business.get("category") or "business").replace("_", " ")
+        title = poc.get("title", "the team")
+        return {
+            "name": poc["name"],
+            "title": poc.get("title", ""),
+            "email_subject": f"Missed calls at {name}?"[:78],
+            "email_body": (
+                f"Hi {first_name},\n\n"
+                f"As {title} at {name}, you're probably the one who feels it when the phone rings and no one "
+                f"can pick up. Every unanswered call in {category} in {city} is usually a customer who books "
+                f"with the next place they find.\n\n"
+                f"Deskie is an AI receptionist that answers every call 24/7, books appointments straight into "
+                f"your calendar, and sends you a summary of each conversation.\n\n"
+                f"Worth a 10-minute call this week to see how many calls {name} might be missing?\n\n"
+                f"Best,\nThe Deskie Team"
+            ),
+            "whatsapp_message": (
+                f"Hi {first_name}! 👋 Saw you're {title.lower() if title else 'involved'} at {name}. "
+                f"We help {category} in {city} stop losing customers to missed calls — our AI receptionist "
+                f"answers 24/7 and books appointments automatically. Worth a quick chat?"
+            ),
+        }
+
     def _fallback_outreach(self, business: dict, scored: ScoredLead) -> dict:
         name = business.get("name", "your business")
         city = business.get("city", "")

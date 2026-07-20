@@ -54,6 +54,7 @@ export default function LeadTable({ businesses }: Props) {
             <th className="text-left px-4 py-3 font-medium hidden lg:table-cell">Email</th>
             <th className="text-left px-4 py-3 font-medium hidden md:table-cell">Phone</th>
             <th className="text-left px-4 py-3 font-medium">Channels</th>
+            <th className="text-left px-4 py-3 font-medium hidden lg:table-cell">Decision Maker</th>
             <th className="text-center px-4 py-3 font-medium">Score</th>
             <th className="text-center px-4 py-3 font-medium">Priority</th>
             <th className="text-center px-4 py-3 font-medium hidden md:table-cell">Pain</th>
@@ -96,6 +97,9 @@ export default function LeadTable({ businesses }: Props) {
                 </td>
                 <td className="px-4 py-3">
                   <ChannelIcons b={b} />
+                </td>
+                <td className="px-4 py-3 hidden lg:table-cell max-w-[180px]">
+                  <PocCell b={b} />
                 </td>
                 <td className="px-4 py-3 text-center">
                   <span className={`font-bold text-lg ${SCORE_COLOR(finalScore ?? null)}`}>
@@ -195,6 +199,28 @@ function ChannelIcons({ b }: { b: Business }) {
           {c.icon}
         </a>
       ))}
+    </div>
+  );
+}
+
+function PocCell({ b }: { b: Business }) {
+  const top = b.poc_contacts?.[0];
+  if (!top) {
+    return <span className="text-slate-600 text-xs">—</span>;
+  }
+  const isGuess = !top.emails[0] && !top.phones[0] && !!top.guessed_emails[0];
+  const contact = top.emails[0] || top.phones[0] || top.guessed_emails[0];
+  return (
+    <div className="min-w-0">
+      <p className="text-xs text-slate-200 truncate" title={`${top.name} — ${top.title}`}>
+        {top.name}
+      </p>
+      <p className="text-[10px] text-slate-500 truncate">{top.title}</p>
+      {contact && (
+        <p className="text-[10px] text-slate-600 truncate" title={contact}>
+          {contact}{isGuess ? " (guess)" : ""}
+        </p>
+      )}
     </div>
   );
 }

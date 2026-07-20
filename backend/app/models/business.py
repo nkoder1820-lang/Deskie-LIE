@@ -22,6 +22,8 @@ class Business(Base):
     phones = Column(JSON, default=list)            # all valid phones found (E.164)
     whatsapp = Column(String(32))                  # E.164 WhatsApp number
     decision_makers = Column(JSON, default=list)   # [{name, title}] from team/about pages
+    poc_contacts = Column(JSON, default=list)       # enriched PoCs: [{name, title, emails, guessed_emails, phones, linkedin_url, confidence, source}]
+    poc_researched_at = Column(DateTime)            # when PoC research last ran
     website = Column(Text)
     maps_url = Column(Text)                        # Google Maps listing URL
     contact_form_url = Column(Text)                # page with a contact form
@@ -90,6 +92,7 @@ class LeadReport(Base):
     outreach_email = Column(Text)           # ready-to-send email body
     whatsapp_message = Column(Text)         # ready-to-send WhatsApp text
     email_sent_at = Column(DateTime)        # when outreach email was sent (if ever)
+    poc_outreach = Column(JSON, default=list)  # [{name, title, email_subject, email_body, whatsapp_message}] per decision maker
     evidence = Column(JSON)                 # raw evidence snippets
     generated_at = Column(DateTime, default=datetime.utcnow)
 

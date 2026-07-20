@@ -12,6 +12,8 @@ export interface Business {
   whatsapp: string | null;
   whatsapp_link: string | null;
   decision_makers: { name: string; title: string }[];
+  poc_contacts: PocContact[];
+  poc_researched_at: string | null;
   linkedin_search: string;
   website: string | null;
   maps_url: string | null;
@@ -44,6 +46,25 @@ export interface LeadScore {
   timing_breakdown: ScoreBreakdown | null;
 }
 
+export interface PocContact {
+  name: string;
+  title: string;
+  emails: string[];
+  guessed_emails: string[];
+  phones: string[];
+  linkedin_url: string | null;
+  confidence: "verified_on_site" | "public_search" | "inferred";
+  source: string;
+}
+
+export interface PocOutreach {
+  name: string;
+  title: string;
+  email_subject: string;
+  email_body: string;
+  whatsapp_message: string;
+}
+
 export interface ScoreBreakdown {
   score: number;
   sub_scores: Record<string, number>;
@@ -59,6 +80,7 @@ export interface LeadReport {
   outreach_email: string | null;
   whatsapp_message: string | null;
   email_sent_at: string | null;
+  poc_outreach: PocOutreach[];
 }
 
 export interface ResearchRequest {
@@ -150,12 +172,54 @@ export const api = {
       "/api/outreach/config"
     ),
 
-  sendEmail: (businessId: string) =>
+  sendEmail: (businessId: string, overrides?: { to?: string; subject?: string; body?: string }) =>
     apiFetch<{ status: string; to: string; email_id: string }>(
       `/api/outreach/send-email/${businessId}`,
-      { method: "POST", body: JSON.stringify({}) }
+      { method: "POST", body: JSON.stringify(overrides || {}) }
+    ),
+
+  // Decision-maker (PoC) research
+  researchPoc: (businessId: string) =>
+    apiFetch<{ poc_contacts: PocContact[]; poc_outreach: PocOutreach[]; serpapi_used: boolean }>(
+      `/api/research/poc/${businessId}`,
+      { method: "POST" }
+    ),
+
+  researchPocBulk: (businessIds?: string[], limit?: number) =>
+    apiFetch<{ status: string; targeted: number; succeeded: number }>(
+      "/api/research/poc/bulk",
+      { method: "POST", body: JSON.stringify({ business_ids: businessIds, limit: limit ?? 20 }) }
     ),
 };
+
+// ── Prefilled outreach links for a specific decision maker (PoC) ────────────
+export function pocOutreachLinks(
+  poc: PocContact,
+  draft: PocOutreach | undefined,
+  business: Business
+): Record<string, string> {
+  const links: Record<string, string> = {};
+  const email = poc.emails[0] || poc.guessed_emails[0];
+  const subject = draft?.email_subject || "";
+  const body = draft?.email_body || "";
+  const waMsg = draft?.whatsapp_message || "";
+
+  if (email) {
+    links.email = `mailto:${email}?subject=${encodeURIComponent(subject)}&body=${encodeURIComponent(body)}`;
+  }
+  const phone = poc.phones[0] || business.whatsapp || business.phone;
+  if (phone) {
+    const digits = phone.replace(/[^\d+]/g, "");
+    links.sms = `sms:${digits}?&body=${encodeURIComponent(waMsg)}`;
+    if (poc.phones[0] || business.whatsapp) {
+      links.whatsapp = `https://wa.me/${digits.replace(/^\+/, "")}?text=${encodeURIComponent(waMsg)}`;
+    }
+  }
+  if (poc.linkedin_url) {
+    links.linkedin = poc.linkedin_url;
+  }
+  return links;
+}
 
 // ── Prefilled outreach links per platform ────────────────────────────────────
 // Every platform that supports prefilled text gets a ready-to-fire link.

@@ -1,6 +1,8 @@
 from app.agents.orchestrator import LeadIntelligenceOrchestrator
 from app.agents.discovery_agent import INDUSTRY_QUERIES
 from app.agents.contact_extractor import ContactExtractor, region_from_address, _valid_email
+from app.agents.poc_agent import PocResearchAgent
+from app.reports.generator import ReportGenerator
 from app.models.business import Business, LeadScore, LeadReport, ResearchResult
 from app.database import get_db, SessionLocal
 
@@ -230,3 +232,112 @@ def enrich_contacts(db: Session = Depends(get_db)):
         "invalid_emails_purged": purged,
         "businesses_with_email_found": emails_found,
     }
+
+
+# ── Decision-maker (PoC) research ────────────────────────────────────────────
+# On-demand (not part of the default pipeline): each call costs ~2 SerpAPI
+# searches + 2 LLM calls, and SerpAPI's free tier is ~100 searches/month.
+
+def _research_poc_for_business(b: Business, session: Session) -> dict:
+    poc = PocResearchAgent().run(
+        business_name=b.name,
+        city=b.city,
+        website=b.website,
+        known_decision_makers=b.decision_makers or [],
+        known_business_phone=b.phone,
+    )
+    b.poc_contacts = poc["poc_contacts"]
+    b.poc_researched_at = datetime.utcnow()
+    session.commit()
+
+    score = session.query(LeadScore).filter_by(business_id=b.id).first()
+    report = session.query(LeadReport).filter_by(business_id=b.id).first()
+    pain_evidence = (score.pain_breakdown or {}).get("evidence", []) if score else []
+    qualification_reason = score.qualification_reason if score else ""
+
+    drafts = ReportGenerator().generate_poc_outreach(
+        business={"name": b.name, "category": b.category, "city": b.city},
+        qualification_reason=qualification_reason or "",
+        poc_contacts=poc["poc_contacts"],
+        pain_evidence=pain_evidence,
+    )
+    if report:
+        report.poc_outreach = drafts
+    else:
+        report = LeadReport(business_id=b.id, poc_outreach=drafts)
+        session.add(report)
+    session.commit()
+
+    return {"poc_contacts": poc["poc_contacts"], "poc_outreach": drafts, "serpapi_used": poc["serpapi_used"]}
+
+
+@router.post("/poc/{business_id}")
+def research_poc(business_id: str, db: Session = Depends(get_db)):
+    """
+    Find the decision maker(s) for one business — names, titles, best-effort
+    contact details (site + public web/LinkedIn search + pattern-inferred
+    email as a last resort) — and generate a personalized outreach draft for
+    each. Explicit per-lead action: costs SerpAPI + LLM calls.
+    """
+    try:
+        biz_uuid = PyUUID(business_id)
+    except ValueError:
+        raise HTTPException(status_code=404, detail="Business not found")
+
+    b = db.query(Business).filter(Business.id == biz_uuid).first()
+    if not b:
+        raise HTTPException(status_code=404, detail="Business not found")
+
+    try:
+        return _research_poc_for_business(b, db)
+    except Exception as e:
+        logger.error(f"[PocAPI] Failed for {b.name}: {e}", exc_info=True)
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+class PocBulkRequest(BaseModel):
+    business_ids: Optional[list[str]] = None   # omit to target every lead missing PoC research
+    limit: int = 20                            # safety cap on SerpAPI usage per call
+
+
+@router.post("/poc/bulk")
+def research_poc_bulk(req: PocBulkRequest, db: Session = Depends(get_db)):
+    """Run PoC research over several leads at once (thread pool, own DB session per lead)."""
+    if req.business_ids:
+        try:
+            uuids = [PyUUID(i) for i in req.business_ids]
+        except ValueError:
+            raise HTTPException(status_code=400, detail="Invalid business_id in list")
+        targets = db.query(Business).filter(Business.id.in_(uuids)).all()
+    else:
+        targets = (
+            db.query(Business)
+            .filter(Business.poc_researched_at.is_(None))
+            .limit(min(req.limit, 100))
+            .all()
+        )
+
+    ids = [str(b.id) for b in targets]
+
+    def _run_one(biz_id: str) -> bool:
+        session = SessionLocal()
+        try:
+            b = session.query(Business).get(PyUUID(biz_id))
+            if not b:
+                return False
+            _research_poc_for_business(b, session)
+            return True
+        except Exception as e:
+            logger.warning(f"[PocBulk] Failed for {biz_id}: {e}")
+            return False
+        finally:
+            session.close()
+
+    succeeded = 0
+    with ThreadPoolExecutor(max_workers=4) as pool:
+        futures = [pool.submit(_run_one, i) for i in ids]
+        for f in as_completed(futures):
+            if f.result():
+                succeeded += 1
+
+    return {"status": "completed", "targeted": len(ids), "succeeded": succeeded}

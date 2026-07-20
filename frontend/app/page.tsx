@@ -1,7 +1,7 @@
 "use client";
 
 import { useState, useEffect, useCallback } from "react";
-import { api, Business, outreachLinks } from "@/lib/api";
+import { api, Business, outreachLinks, pocOutreachLinks } from "@/lib/api";
 import LeadTable from "@/components/LeadTable";
 import ResearchForm from "@/components/ResearchForm";
 
@@ -22,6 +22,10 @@ export default function DashboardPage() {
   const [priority, setPriority] = useState("");
   const [sortBy, setSortBy] = useState("final_score");
   const [cityFilter, setCityFilter] = useState("");
+
+  // Bulk PoC research
+  const [pocBulkLoading, setPocBulkLoading] = useState(false);
+  const [pocBulkMsg, setPocBulkMsg] = useState<string | null>(null);
 
   const loadBusinesses = useCallback(async () => {
     setLoading(true);
@@ -45,22 +49,68 @@ export default function DashboardPage() {
     loadBusinesses();
   }, [loadBusinesses]);
 
+  const handleBulkResearchPoc = async () => {
+    const withoutPoc = businesses.filter((b) => !b.poc_researched_at).length;
+    if (
+      !window.confirm(
+        `Research decision-maker contacts for up to 20 leads that haven't been researched yet ` +
+        `(${withoutPoc} of ${businesses.length} on this page)?\n\n` +
+        `This uses SerpAPI web-search quota (~2 searches/lead) — your free tier is limited.`
+      )
+    ) {
+      return;
+    }
+    setPocBulkLoading(true);
+    setPocBulkMsg(null);
+    try {
+      const r = await api.researchPocBulk(undefined, 20);
+      setPocBulkMsg(`✅ Researched ${r.succeeded}/${r.targeted} leads`);
+      loadBusinesses();
+    } catch (e) {
+      setPocBulkMsg(`❌ ${e instanceof Error ? e.message : "Bulk PoC research failed"}`);
+    } finally {
+      setPocBulkLoading(false);
+    }
+  };
+
   const handleExportCSV = () => {
     if (businesses.length === 0) return;
     const q = (v: string | null | undefined) => `"${(v || "").replace(/"/g, '""')}"`;
     const headers = [
       "Business Name", "City", "Category", "Score", "Priority", "Pitch Angle",
-      "Qualification Reason", "Decision Makers", "Email", "All Emails", "Phone", "All Phones",
+      "Qualification Reason", "Email", "All Emails", "Phone", "All Phones",
       "WhatsApp", "Website", "Instagram", "Facebook", "LinkedIn", "Twitter/X",
       "YouTube", "Google Maps", "Contact Form", "LinkedIn People Search",
       "Outreach Subject", "Outreach Email", "WhatsApp Message",
       "Send Email Link (prefilled)", "Send WhatsApp Link (prefilled)",
       "Send SMS Link (prefilled)", "Messenger Link",
+      // Decision-maker (PoC) columns
+      "PoC 1 Name", "PoC 1 Title", "PoC 1 Confidence", "PoC 1 Email", "PoC 1 Guessed Email",
+      "PoC 1 Phone", "PoC 1 LinkedIn", "PoC 1 Send Email Link", "PoC 1 Send WhatsApp Link",
+      "PoC 2 Name", "PoC 2 Title", "PoC 2 Confidence", "PoC 2 Email", "PoC 2 Guessed Email",
+      "PoC 2 Phone", "PoC 2 LinkedIn", "PoC 2 Send Email Link", "PoC 2 Send WhatsApp Link",
+      "PoC 3 Name", "PoC 3 Title", "PoC 3 Confidence", "PoC 3 Email", "PoC 3 Guessed Email",
+      "PoC 3 Phone", "PoC 3 LinkedIn", "PoC 3 Send Email Link", "PoC 3 Send WhatsApp Link",
       "Pain Score", "Value Score", "Digital Score", "Timing Score"
     ];
 
     const rows = businesses.map(b => {
       const send = outreachLinks(b);
+      const pocCols: (string | number)[] = [];
+      for (let i = 0; i < 3; i++) {
+        const poc = b.poc_contacts?.[i];
+        if (!poc) {
+          pocCols.push(q(null), q(null), q(null), q(null), q(null), q(null), q(null), q(null), q(null));
+          continue;
+        }
+        const draft = b.report?.poc_outreach?.find((d) => d.name === poc.name);
+        const pocLinks = pocOutreachLinks(poc, draft, b);
+        pocCols.push(
+          q(poc.name), q(poc.title), q(poc.confidence),
+          q(poc.emails[0]), q(poc.guessed_emails[0]), q(poc.phones[0]), q(poc.linkedin_url),
+          q(pocLinks.email), q(pocLinks.whatsapp),
+        );
+      }
       return [
       q(b.name),
       q(b.city),
@@ -69,7 +119,6 @@ export default function DashboardPage() {
       b.score?.priority || "",
       q(b.score?.pitch_angle),
       q(b.score?.qualification_reason),
-      q((b.decision_makers || []).map(d => `${d.name} (${d.title})`).join("; ")),
       q(b.email),
       q((b.emails || []).join("; ")),
       q(b.phone),
@@ -91,6 +140,7 @@ export default function DashboardPage() {
       q(send.whatsapp),
       q(send.sms),
       q(send.messenger),
+      ...pocCols,
       b.score?.pain_score || "",
       b.score?.business_value_score || "",
       b.score?.digital_score || "",
@@ -211,13 +261,32 @@ export default function DashboardPage() {
           </button>
 
           <button
+            onClick={handleBulkResearchPoc}
+            disabled={pocBulkLoading}
+            title="Find decision-maker names, titles and contact details for leads that don't have them yet. Uses SerpAPI quota."
+            className="text-xs text-slate-400 hover:text-white transition-colors px-3 py-1.5 border border-white/10 rounded-lg hover:border-white/20 flex items-center gap-1 ml-auto disabled:opacity-50"
+          >
+            {pocBulkLoading ? (
+              <>
+                <span className="animate-spin">⟳</span> Researching decision makers...
+              </>
+            ) : (
+              "🔎 Research decision makers"
+            )}
+          </button>
+
+          <button
             onClick={handleExportCSV}
-            className="text-xs text-slate-400 hover:text-white transition-colors px-3 py-1.5 border border-white/10 rounded-lg hover:border-white/20 flex items-center gap-1 ml-auto"
+            className="text-xs text-slate-400 hover:text-white transition-colors px-3 py-1.5 border border-white/10 rounded-lg hover:border-white/20 flex items-center gap-1"
           >
             <svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="7 10 12 15 17 10"/><line x1="12" x2="12" y1="15" y2="3"/></svg>
             Export CSV
           </button>
         </div>
+
+        {pocBulkMsg && (
+          <p className="text-xs text-slate-400 -mt-3">{pocBulkMsg}</p>
+        )}
 
         {/* Table */}
         {loading ? (

@@ -110,6 +110,8 @@ def _serialize_business(b: Business) -> dict:
         "whatsapp": b.whatsapp,
         "whatsapp_link": f"https://wa.me/{b.whatsapp.lstrip('+')}" if b.whatsapp else None,
         "decision_makers": b.decision_makers or [],
+        "poc_contacts": b.poc_contacts or [],
+        "poc_researched_at": b.poc_researched_at.isoformat() if b.poc_researched_at else None,
         "linkedin_search": (
             "https://www.linkedin.com/search/results/people/?keywords="
             + quote(f'"{b.name}" owner OR manager')
@@ -150,5 +152,6 @@ def _serialize_business(b: Business) -> dict:
             "outreach_email": report.outreach_email,
             "whatsapp_message": report.whatsapp_message,
             "email_sent_at": report.email_sent_at.isoformat() if report.email_sent_at else None,
+            "poc_outreach": report.poc_outreach or [],
         } if report else None,
     }

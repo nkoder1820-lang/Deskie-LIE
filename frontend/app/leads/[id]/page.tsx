@@ -2,9 +2,15 @@
 
 import { useEffect, useState, useCallback } from "react";
 import { useParams, useRouter } from "next/navigation";
-import { api, Business, outreachLinks } from "@/lib/api";
+import { api, Business, outreachLinks, pocOutreachLinks, PocContact } from "@/lib/api";
 import { ScoreRing, BreakdownCard } from "@/components/ScoreCard";
 import { channelLinks } from "@/components/LeadTable";
+
+const CONFIDENCE_STYLES: Record<string, { label: string; className: string }> = {
+  verified_on_site: { label: "From their website", className: "bg-blue-500/15 text-blue-300 border-blue-500/30" },
+  public_search: { label: "Found via web search", className: "bg-emerald-500/15 text-emerald-300 border-emerald-500/30" },
+  inferred: { label: "Guessed — unverified", className: "bg-amber-500/15 text-amber-300 border-amber-500/30" },
+};
 
 const PRIORITY_STYLES: Record<string, string> = {
   HOT: "bg-red-500/20 text-red-400 border border-red-500/40",
@@ -31,6 +37,10 @@ export default function LeadDetailPage() {
   const [sendingEnabled, setSendingEnabled] = useState(false);
   const [sendState, setSendState] = useState<"idle" | "sending" | "sent" | "error">("idle");
   const [sendMsg, setSendMsg] = useState<string | null>(null);
+  const [pocLoading, setPocLoading] = useState(false);
+  const [pocError, setPocError] = useState<string | null>(null);
+  const [pocSendState, setPocSendState] = useState<Record<string, "sending" | "sent" | "error">>({});
+  const [pocSendMsg, setPocSendMsg] = useState<Record<string, string>>({});
 
   useEffect(() => {
     if (params.id) {
@@ -56,6 +66,44 @@ export default function LeadDetailPage() {
     } catch (e) {
       setSendState("error");
       setSendMsg(e instanceof Error ? e.message : "Send failed");
+    }
+  };
+
+  const handleResearchPoc = async () => {
+    if (!business) return;
+    setPocLoading(true);
+    setPocError(null);
+    try {
+      const r = await api.researchPoc(business.id);
+      setBusiness({
+        ...business,
+        poc_contacts: r.poc_contacts,
+        poc_researched_at: new Date().toISOString(),
+        report: business.report ? { ...business.report, poc_outreach: r.poc_outreach } : business.report,
+      });
+    } catch (e) {
+      setPocError(e instanceof Error ? e.message : "PoC research failed");
+    } finally {
+      setPocLoading(false);
+    }
+  };
+
+  const handleSendPocEmail = async (poc: PocContact, draft: { email_subject: string; email_body: string } | undefined) => {
+    const email = poc.emails[0] || poc.guessed_emails[0];
+    if (!email || !business) return;
+    if (!window.confirm(`Send the cold email to ${poc.name} <${email}> now?`)) return;
+    setPocSendState((s) => ({ ...s, [poc.name]: "sending" }));
+    try {
+      const r = await api.sendEmail(business.id, {
+        to: email,
+        subject: draft?.email_subject,
+        body: draft?.email_body,
+      });
+      setPocSendState((s) => ({ ...s, [poc.name]: "sent" }));
+      setPocSendMsg((s) => ({ ...s, [poc.name]: `Sent to ${r.to}` }));
+    } catch (e) {
+      setPocSendState((s) => ({ ...s, [poc.name]: "error" }));
+      setPocSendMsg((s) => ({ ...s, [poc.name]: e instanceof Error ? e.message : "Send failed" }));
     }
   };
 
@@ -209,40 +257,172 @@ export default function LeadDetailPage() {
           </div>
         </div>
 
-        {/* Decision Makers */}
-        {((business.decision_makers?.length || 0) > 0 || business.linkedin_search) && (
-          <section>
-            <h3 className="text-sm font-semibold text-slate-300 uppercase tracking-wider mb-3">
+        {/* Decision Makers — research trigger + channels_poc */}
+        <section>
+          <div className="flex items-center justify-between mb-3 flex-wrap gap-2">
+            <h3 className="text-sm font-semibold text-slate-300 uppercase tracking-wider">
               Decision Makers
             </h3>
+            <button
+              onClick={handleResearchPoc}
+              disabled={pocLoading}
+              title="Search the web + LinkedIn for who actually makes purchasing decisions here. Uses SerpAPI quota."
+              className="text-xs px-3 py-1.5 bg-indigo-600 hover:bg-indigo-500 disabled:bg-indigo-900 disabled:text-indigo-400 rounded-lg text-white font-medium transition-colors flex items-center gap-1.5"
+            >
+              {pocLoading ? (
+                <>
+                  <span className="animate-spin">⟳</span> Researching...
+                </>
+              ) : business.poc_researched_at ? (
+                "🔎 Re-research decision makers"
+              ) : (
+                "🔎 Research decision makers"
+              )}
+            </button>
+          </div>
+
+          {pocError && <p className="text-xs text-red-400 mb-3">{pocError}</p>}
+          {business.poc_researched_at && !pocError && (
+            <p className="text-xs text-slate-500 mb-3">
+              Last researched {new Date(business.poc_researched_at).toLocaleString()}
+            </p>
+          )}
+
+          {business.poc_contacts.length > 0 ? (
+            <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-3">
+              {business.poc_contacts.map((poc) => {
+                const pocLinks = pocOutreachLinks(poc, undefined, business);
+                const conf = CONFIDENCE_STYLES[poc.confidence] || CONFIDENCE_STYLES.inferred;
+                return (
+                  <div key={poc.name} className="bg-white/5 border border-white/10 rounded-xl px-4 py-3">
+                    <div className="flex items-start justify-between gap-2">
+                      <div>
+                        <p className="text-sm text-white font-medium">{poc.name}</p>
+                        <p className="text-xs text-slate-400 mt-0.5">{poc.title}</p>
+                      </div>
+                    </div>
+                    <span className={`inline-block mt-2 px-2 py-0.5 rounded-full text-[10px] font-medium border ${conf.className}`}>
+                      {conf.label}
+                    </span>
+                    <div className="flex items-center gap-2.5 mt-2.5 flex-wrap">
+                      {(poc.emails[0] || poc.guessed_emails[0]) && (
+                        <a
+                          href={pocLinks.email}
+                          title={poc.emails[0] ? poc.emails[0] : `${poc.guessed_emails[0]} (guessed — verify before high-volume sending)`}
+                          className="text-xs text-slate-300 hover:text-indigo-300 transition-colors"
+                        >
+                          ✉️ {poc.emails[0] ? "Email" : "Email (guess)"}
+                        </a>
+                      )}
+                      {poc.phones[0] && (
+                        <a href={`tel:${poc.phones[0]}`} className="text-xs text-slate-300 hover:text-emerald-300 transition-colors">
+                          📞 Call
+                        </a>
+                      )}
+                      {pocLinks.whatsapp && (
+                        <a href={pocLinks.whatsapp} target="_blank" rel="noopener noreferrer" className="text-xs text-slate-300 hover:text-emerald-300 transition-colors">
+                          💬 WhatsApp
+                        </a>
+                      )}
+                      {poc.linkedin_url && (
+                        <a href={poc.linkedin_url} target="_blank" rel="noopener noreferrer" className="text-xs text-slate-300 hover:text-blue-300 transition-colors">
+                          💼 LinkedIn
+                        </a>
+                      )}
+                    </div>
+                  </div>
+                );
+              })}
+            </div>
+          ) : (
             <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-3">
               {(business.decision_makers || []).map((d) => (
                 <div key={d.name} className="bg-white/5 border border-white/10 rounded-xl px-4 py-3">
                   <p className="text-sm text-white font-medium">{d.name}</p>
                   <p className="text-xs text-slate-400 mt-0.5">{d.title}</p>
-                  <a
-                    href={`https://www.linkedin.com/search/results/people/?keywords=${encodeURIComponent(`"${d.name}" ${business.city}`)}`}
-                    target="_blank"
-                    rel="noopener noreferrer"
-                    className="text-xs text-indigo-400 hover:text-indigo-300 mt-1 inline-block"
-                  >
-                    Find on LinkedIn →
-                  </a>
                 </div>
               ))}
-              {business.linkedin_search && (
-                <div className="bg-white/5 border border-dashed border-white/15 rounded-xl px-4 py-3">
-                  <p className="text-xs text-slate-400">Who runs this business?</p>
-                  <a
-                    href={business.linkedin_search}
-                    target="_blank"
-                    rel="noopener noreferrer"
-                    className="text-sm text-indigo-400 hover:text-indigo-300 mt-1 inline-block"
-                  >
-                    Search owner/manager on LinkedIn →
-                  </a>
-                </div>
-              )}
+              <div className="bg-white/5 border border-dashed border-white/15 rounded-xl px-4 py-3">
+                <p className="text-xs text-slate-400">
+                  {business.decision_makers.length > 0
+                    ? "Run research above to find contact details for these people."
+                    : "No decision maker found yet — run the research above."}
+                </p>
+                <a
+                  href={business.linkedin_search}
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  className="text-xs text-indigo-400 hover:text-indigo-300 mt-1 inline-block"
+                >
+                  Search owner/manager on LinkedIn →
+                </a>
+              </div>
+            </div>
+          )}
+        </section>
+
+        {/* Decision-Maker Outreach Drafts (drafts_poc) */}
+        {(report?.poc_outreach?.length || 0) > 0 && (
+          <section>
+            <h3 className="text-sm font-semibold text-slate-300 uppercase tracking-wider mb-3">
+              Decision-Maker Outreach Drafts
+            </h3>
+            <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
+              {report!.poc_outreach.map((draft) => {
+                const poc = business.poc_contacts.find((p) => p.name === draft.name);
+                if (!poc) return null;
+                const pocLinks = pocOutreachLinks(poc, draft, business);
+                const email = poc.emails[0] || poc.guessed_emails[0];
+                const state = pocSendState[poc.name];
+                const msg = pocSendMsg[poc.name];
+                return (
+                  <OutreachCard
+                    key={poc.name}
+                    title={`✉️ ${draft.name} — ${draft.title || "Decision maker"}`}
+                    subject={draft.email_subject}
+                    body={draft.email_body}
+                    actionLabel={pocLinks.email ? "Open in email app" : undefined}
+                    actionHref={pocLinks.email}
+                    extraAction={
+                      <>
+                        {pocLinks.whatsapp && (
+                          <a
+                            href={pocLinks.whatsapp}
+                            target="_blank"
+                            rel="noopener noreferrer"
+                            className="text-xs px-2.5 py-1 border border-white/15 rounded-md text-slate-300 hover:text-white hover:border-white/30 transition-colors"
+                          >
+                            WhatsApp →
+                          </a>
+                        )}
+                        {email && (
+                          <button
+                            onClick={() => handleSendPocEmail(poc, draft)}
+                            disabled={!sendingEnabled || state === "sending" || state === "sent"}
+                            title={
+                              sendingEnabled
+                                ? `Send via Resend to ${email}`
+                                : "Set RESEND_API_KEY + OUTREACH_FROM_EMAIL in backend/.env to enable"
+                            }
+                            className="text-xs px-2.5 py-1 bg-emerald-600 hover:bg-emerald-500 disabled:bg-slate-700 disabled:text-slate-400 rounded-md text-white transition-colors"
+                          >
+                            {state === "sending" ? "Sending..." : state === "sent" ? "✓ Sent" : "🚀 Send now"}
+                          </button>
+                        )}
+                      </>
+                    }
+                    footer={
+                      msg ? (
+                        <p className={`text-xs mt-2 ${state === "error" ? "text-red-400" : "text-emerald-400"}`}>{msg}</p>
+                      ) : !poc.emails[0] && poc.guessed_emails[0] ? (
+                        <p className="text-xs mt-2 text-amber-400">
+                          Email is a guess ({poc.guessed_emails[0]}) — verify before sending at volume.
+                        </p>
+                      ) : undefined
+                    }
+                  />
+                );
+              })}
             </div>
           </section>
         )}
