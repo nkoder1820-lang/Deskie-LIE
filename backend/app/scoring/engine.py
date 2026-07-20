@@ -43,6 +43,7 @@ class ScoredLead:
     priority: str                       # HOT | HIGH | MEDIUM | LOW
     pitch_angle: str = ""
     qualification_reason: str = ""
+    pitch_source: Optional[dict] = None  # {"label": str, "url": str} — real evidence link, when we have one
 
 
 # ── Classifier ──────────────────────────────────────────────────────────────
@@ -99,7 +100,7 @@ class ScoringEngine:
         )
         final = min(100.0, max(0.0, final))
 
-        pitch_angle, qual_reason = self._classify_pitch_angle(business, website, review, enricher, pain)
+        pitch_angle, qual_reason, pitch_source = self._classify_pitch_angle(business, website, review, enricher, pain)
 
         return ScoredLead(
             pain_score=round(pain.score, 2),
@@ -114,23 +115,48 @@ class ScoringEngine:
             priority=classify_priority(final),
             pitch_angle=pitch_angle,
             qualification_reason=qual_reason,
+            pitch_source=pitch_source,
         )
 
-    def _classify_pitch_angle(self, business: dict, website: dict, review: dict, enricher: dict, pain: ScoreBreakdown) -> tuple[str, str]:
+    def _classify_pitch_angle(
+        self, business: dict, website: dict, review: dict, enricher: dict, pain: ScoreBreakdown
+    ) -> tuple[str, str, Optional[dict]]:
         if review.get("missed_call_complaints_found"):
-            return "🔥 Missed Calls", "Explicit complaints in Google reviews about missed calls or long phone waits."
+            source = {"label": "See the reviews on Google Maps", "url": business["maps_url"]} \
+                if business.get("maps_url") else None
+            return (
+                "🔥 Missed Calls",
+                "Explicit complaints in Google reviews about missed calls or long phone waits.",
+                source,
+            )
         if enricher.get("runs_google_ads") and not website.get("booking_available"):
-            return "💰 Wasting Ad Budget", "Running Google ads but has no online booking system to capture leads."
+            ads = enricher.get("ads_sources") or []
+            source = {"label": f"View the ad — {ads[0]['title']}", "url": ads[0]["url"]} if ads else None
+            return (
+                "💰 Wasting Ad Budget",
+                "Running Google ads but has no online booking system to capture leads.",
+                source,
+            )
         if enricher.get("is_hiring_receptionist") or enricher.get("is_hiring_any"):
-            return "💼 Hiring Receptionist", "Actively hiring front-desk staff or receptionists; an AI can reduce overhead."
+            jobs = enricher.get("hiring_sources") or []
+            source = {"label": f"View the job posting — {jobs[0]['title']}", "url": jobs[0]["url"]} if jobs else None
+            return (
+                "💼 Hiring Receptionist",
+                "Actively hiring front-desk staff or receptionists; an AI can reduce overhead.",
+                source,
+            )
         if pain.sub_scores.get("after_hours_leak", 0.0) > 0.5:
-            return "🌙 After-Hours Leak", "Not open 24/7 and lacks online booking, losing leads during closed hours."
+            return (
+                "🌙 After-Hours Leak",
+                "Not open 24/7 and lacks online booking, losing leads during closed hours.",
+                None,
+            )
         if not business.get("website"):
-            return "🌐 No Website", "No website found; totally reliant on walk-ins and phone calls."
+            return "🌐 No Website", "No website found; totally reliant on walk-ins and phone calls.", None
         if not website.get("booking_available"):
-            return "📅 No Booking System", "Has a website but no booking automation."
-        
-        return "✨ General AI Upgrade", "Good fit for automated patient/client handling."
+            return "📅 No Booking System", "Has a website but no booking automation.", None
+
+        return "✨ General AI Upgrade", "Good fit for automated patient/client handling.", None
 
     # ── Pain Score (40%) ─────────────────────────────────────────────────────
     def _score_pain(self, business: dict, website: dict, review: dict, value: dict, enricher: dict) -> ScoreBreakdown:

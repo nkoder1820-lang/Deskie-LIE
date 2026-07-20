@@ -196,6 +196,17 @@ export default function LeadDetailPage() {
                   {score.pitch_angle}
                 </div>
               )}
+              {score?.pitch_source && (
+                <a
+                  href={score.pitch_source.url}
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  title={score.pitch_source.label}
+                  className="text-[10px] text-indigo-400 hover:text-indigo-300 transition-colors"
+                >
+                  🔗 Verify source
+                </a>
+              )}
             </div>
 
             {/* Business Info */}
@@ -241,6 +252,16 @@ export default function LeadDetailPage() {
                     🎯 Qualification Reason
                   </p>
                   <p className="text-slate-200 text-sm">{score.qualification_reason}</p>
+                  {score.pitch_source && (
+                    <a
+                      href={score.pitch_source.url}
+                      target="_blank"
+                      rel="noopener noreferrer"
+                      className="text-xs text-indigo-400 hover:text-indigo-300 transition-colors mt-2 inline-flex items-center gap-1"
+                    >
+                      🔗 {score.pitch_source.label} ↗
+                    </a>
+                  )}
                 </div>
               )}
 
@@ -609,6 +630,30 @@ export default function LeadDetailPage() {
                     {report.pain_points.map((p, i) => (
                       <li key={i} className="text-xs text-slate-300 flex gap-1.5">
                         <span className="text-red-400 shrink-0">!</span> {p}
+                      </li>
+                    ))}
+                  </ul>
+                </div>
+              )}
+
+              {report.sources && report.sources.length > 0 && (
+                <div className="md:col-span-3 bg-white/5 border border-white/10 rounded-xl p-4">
+                  <p className="text-xs text-indigo-400 uppercase tracking-wide font-medium mb-2">
+                    🔗 Sources — click to verify
+                  </p>
+                  <ul className="space-y-1.5">
+                    {report.sources.map((s, i) => (
+                      <li key={i} className="text-xs flex gap-1.5">
+                        <span className="text-indigo-400 shrink-0">↗</span>
+                        <a
+                          href={s.url}
+                          target="_blank"
+                          rel="noopener noreferrer"
+                          className="text-slate-300 hover:text-indigo-300 transition-colors truncate"
+                          title={s.url}
+                        >
+                          {s.label}
+                        </a>
                       </li>
                     ))}
                   </ul>

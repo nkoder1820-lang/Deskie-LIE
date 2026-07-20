@@ -30,7 +30,10 @@ class ReportGenerator:
         review_result: dict,
         social_result: dict,
         value_result: dict,
+        enricher_result: dict | None = None,
     ) -> dict:
+
+        enricher_result = enricher_result or {}
 
         # Collect all evidence for the report
         all_evidence = {
@@ -40,6 +43,9 @@ class ReportGenerator:
             "timing": scored_lead.timing_breakdown.evidence,
             "reviews": review_result.get("evidence", []),
             "website_pain": website_result.get("pain_signals", []),
+            # Real, clickable links backing the pitch reasons — never
+            # invented by the LLM, pulled straight from the raw search data.
+            "sources": self._collect_sources(business, scored_lead, review_result, enricher_result),
         }
 
         # One LLM call produces both the report and the sendable outreach
@@ -65,6 +71,39 @@ class ReportGenerator:
             "whatsapp_message": outreach["whatsapp"],
             "evidence": all_evidence,
         }
+
+    # ── Evidence sources (real links, no LLM involved) ──────────────────────
+    def _collect_sources(
+        self, business: dict, scored: ScoredLead, review_result: dict, enricher_result: dict,
+    ) -> list[dict]:
+        """
+        Every concrete, clickable source we actually found — Google reviews,
+        job postings, ads — so pitch reasons can be verified, not just
+        trusted. Deterministic assembly only; nothing here is LLM-generated.
+        """
+        sources: list[dict] = []
+        seen_urls: set[str] = set()
+
+        def add(label: str, url: str | None):
+            if url and url not in seen_urls:
+                seen_urls.add(url)
+                sources.append({"label": label, "url": url})
+
+        # The pitch angle's own backing link goes first — it's the single
+        # most relevant piece of evidence for this lead.
+        if scored.pitch_source:
+            add(scored.pitch_source["label"], scored.pitch_source.get("url"))
+
+        if business.get("maps_url") and review_result.get("evidence"):
+            add("Google Reviews (quoted complaints)", business["maps_url"])
+
+        for job in enricher_result.get("hiring_sources") or []:
+            add(f"Job posting: {job.get('title', '')}"[:120], job.get("url"))
+
+        for ad in enricher_result.get("ads_sources") or []:
+            add(f"Ad: {ad.get('title', '')}"[:120], ad.get("url"))
+
+        return sources[:6]
 
     # ── Per-decision-maker outreach drafts ──────────────────────────────────
     def generate_poc_outreach(

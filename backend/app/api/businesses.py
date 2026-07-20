@@ -133,6 +133,7 @@ def _serialize_business(b: Business) -> dict:
             "priority": score.priority if score else None,
             "pitch_angle": score.pitch_angle if score else None,
             "qualification_reason": score.qualification_reason if score else None,
+            "pitch_source": score.pitch_source if score else None,
             "pain_score": float(score.pain_score) if score and score.pain_score else None,
             "business_value_score": float(score.business_value_score) if score and score.business_value_score else None,
             "digital_score": float(score.digital_score) if score and score.digital_score else None,
@@ -153,5 +154,6 @@ def _serialize_business(b: Business) -> dict:
             "whatsapp_message": report.whatsapp_message,
             "email_sent_at": report.email_sent_at.isoformat() if report.email_sent_at else None,
             "poc_outreach": report.poc_outreach or [],
+            "sources": (report.evidence or {}).get("sources", []),
         } if report else None,
     }

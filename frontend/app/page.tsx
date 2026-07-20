@@ -78,6 +78,7 @@ export default function DashboardPage() {
     const q = (v: string | null | undefined) => `"${(v || "").replace(/"/g, '""')}"`;
     const headers = [
       "Business Name", "City", "Category", "Score", "Priority", "Pitch Angle",
+      "Pitch Reason Source Label", "Pitch Reason Source Link", "Evidence Sources (all)",
       "Qualification Reason", "Email", "All Emails", "Phone", "All Phones",
       "WhatsApp", "Website", "Instagram", "Facebook", "LinkedIn", "Twitter/X",
       "YouTube", "Google Maps", "Contact Form", "LinkedIn People Search",
@@ -118,6 +119,9 @@ export default function DashboardPage() {
       b.score?.final_score || "",
       b.score?.priority || "",
       q(b.score?.pitch_angle),
+      q(b.score?.pitch_source?.label),
+      q(b.score?.pitch_source?.url),
+      q((b.report?.sources || []).map((s) => `${s.label}: ${s.url}`).join(" | ")),
       q(b.score?.qualification_reason),
       q(b.email),
       q((b.emails || []).join("; ")),

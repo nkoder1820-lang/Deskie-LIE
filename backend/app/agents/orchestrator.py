@@ -113,6 +113,7 @@ class LeadIntelligenceOrchestrator:
             "city": biz.city,
             "phone": biz.phone,
             "website": biz.website,
+            "maps_url": biz.maps_url,
             "rating": float(biz.google_rating) if biz.google_rating else None,
             "review_count": biz.review_count,
             "opening_hours": biz.opening_hours,
@@ -175,6 +176,7 @@ class LeadIntelligenceOrchestrator:
             review_result=review_result,
             social_result=social_result,
             value_result=value_result,
+            enricher_result=enricher_result,
         )
         self._save_report(biz_id, report, db)
 
@@ -311,6 +313,7 @@ class LeadIntelligenceOrchestrator:
             priority=scored.priority,
             pitch_angle=scored.pitch_angle,
             qualification_reason=scored.qualification_reason,
+            pitch_source=scored.pitch_source,
         )
         if existing:
             for k, v in data.items():

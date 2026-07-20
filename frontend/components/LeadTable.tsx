@@ -82,8 +82,22 @@ export default function LeadTable({ businesses }: Props) {
                 </td>
                 <td className="px-4 py-3">
                   {score?.pitch_angle ? (
-                    <span className={`px-2.5 py-1 rounded-md text-xs font-semibold border ${PITCH_ANGLE_STYLES[score.pitch_angle] || "bg-white/10 text-white"}`}>
-                      {score.pitch_angle}
+                    <span className="inline-flex items-center gap-1">
+                      <span className={`px-2.5 py-1 rounded-md text-xs font-semibold border ${PITCH_ANGLE_STYLES[score.pitch_angle] || "bg-white/10 text-white"}`}>
+                        {score.pitch_angle}
+                      </span>
+                      {score.pitch_source && (
+                        <a
+                          href={score.pitch_source.url}
+                          target="_blank"
+                          rel="noopener noreferrer"
+                          title={`Verify: ${score.pitch_source.label}`}
+                          onClick={(e) => e.stopPropagation()}
+                          className="text-indigo-400 hover:text-indigo-300 text-xs"
+                        >
+                          🔗
+                        </a>
+                      )}
                     </span>
                   ) : (
                     <span className="text-slate-600">—</span>

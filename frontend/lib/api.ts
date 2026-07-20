@@ -31,11 +31,17 @@ export interface Business {
   research?: Record<string, unknown>;
 }
 
+export interface EvidenceSource {
+  label: string;
+  url: string;
+}
+
 export interface LeadScore {
   final_score: number | null;
   priority: "HOT" | "HIGH" | "MEDIUM" | "LOW" | null;
   pitch_angle: string | null;
   qualification_reason: string | null;
+  pitch_source: EvidenceSource | null;
   pain_score: number | null;
   business_value_score: number | null;
   digital_score: number | null;
@@ -81,6 +87,7 @@ export interface LeadReport {
   whatsapp_message: string | null;
   email_sent_at: string | null;
   poc_outreach: PocOutreach[];
+  sources: EvidenceSource[];
 }
 
 export interface ResearchRequest {

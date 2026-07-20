@@ -74,6 +74,7 @@ class LeadScore(Base):
     priority = Column(String(16))           # HOT | HIGH | MEDIUM | LOW
     pitch_angle = Column(String(128))
     qualification_reason = Column(Text)
+    pitch_source = Column(JSON)             # {"label": str, "url": str} — real link backing the pitch angle
     scored_at = Column(DateTime, default=datetime.utcnow)
 
     business = relationship("Business", back_populates="lead_score")
