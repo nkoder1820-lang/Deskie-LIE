@@ -213,8 +213,18 @@ export const api = {
 // own compose URL is a plain https link (always opens), and Gmail
 // autosaves any open compose window as a draft within a couple of seconds —
 // so opening it IS "saving a draft, ready to send" with zero OAuth setup.
+//
+// Deliberately NOT passing fs=1 (force full-screen compose): that skips
+// loading the normal Gmail shell entirely, landing on a bare editor with
+// no inbox chrome and no visible account indicator — confusing, and no way
+// to tell which Google account it's about to send from. Without it, the
+// link opens as the ordinary compose popup docked inside your actual
+// Gmail inbox, where the account avatar is visible as usual. There's no
+// way for a plain link like this to force a specific Google account if
+// you're signed into more than one — Gmail uses whichever is currently
+// active in that browser tab.
 export function gmailComposeLink(to: string, subject: string, body: string): string {
-  const params = new URLSearchParams({ view: "cm", fs: "1", to, su: subject, body });
+  const params = new URLSearchParams({ view: "cm", to, su: subject, body });
   return `https://mail.google.com/mail/?${params.toString()}`;
 }
 
