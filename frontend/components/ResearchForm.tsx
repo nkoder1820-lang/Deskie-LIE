@@ -1,6 +1,6 @@
 "use client";
 
-import { useState } from "react";
+import { useState, useEffect } from "react";
 import { api } from "@/lib/api";
 
 const INDUSTRY_SUGGESTIONS = [
@@ -111,6 +111,31 @@ export default function ResearchForm({ onComplete }: Props) {
   const [loading, setLoading] = useState(false);
   const [status, setStatus] = useState<{ type: "success" | "error"; msg: string } | null>(null);
   const [bulkProgress, setBulkProgress] = useState<string | null>(null);
+
+  // SerpAPI enricher toggle — persisted server-side, applies to future runs
+  // immediately. null = not yet loaded (hide the control until we know).
+  const [serpEnricher, setSerpEnricher] = useState<boolean | null>(null);
+  const [serpConfigured, setSerpConfigured] = useState(true);
+  useEffect(() => {
+    api.getSettings()
+      .then((s) => {
+        setSerpEnricher(s.enable_serpapi_enricher);
+        setSerpConfigured(s.serpapi_configured);
+      })
+      .catch(() => setSerpEnricher(null));
+  }, []);
+
+  const toggleEnricher = async () => {
+    if (serpEnricher === null) return;
+    const next = !serpEnricher;
+    setSerpEnricher(next); // optimistic
+    try {
+      const s = await api.updateSettings({ enable_serpapi_enricher: next });
+      setSerpEnricher(s.enable_serpapi_enricher);
+    } catch {
+      setSerpEnricher(!next); // revert on failure
+    }
+  };
 
   async function pollBulk() {
     // Poll until the background job completes, refreshing the table as leads land
@@ -254,13 +279,36 @@ export default function ResearchForm({ onComplete }: Props) {
         ))}
       </div>
 
-      <p className="text-sm text-slate-400 mb-5">
+      <p className="text-sm text-slate-400 mb-3">
         {mode === "hiring"
           ? "Finds businesses ALREADY hiring this role right now — postings from LinkedIn, Indeed, ZipRecruiter and career pages (via Google Jobs) — then builds the full lead: contacts, decision makers, pitch angle and outreach drafts, with the job posting as evidence."
           : bulkMode
           ? "Comma-separate multiple industries and cities — every combination is researched in the background."
           : "Discover and score leads for any industry, in any city worldwide. Type freely — suggestions are optional. Runs above 100 leads continue in the background."}
       </p>
+
+      {mode === "industry" && serpEnricher !== null && (
+        <label className="flex items-start gap-2.5 mb-5 text-xs cursor-pointer select-none bg-white/5 border border-white/10 rounded-lg px-3 py-2.5 hover:border-white/20 transition-colors">
+          <input
+            type="checkbox"
+            checked={serpEnricher}
+            onChange={toggleEnricher}
+            disabled={!serpConfigured}
+            className="accent-indigo-600 mt-0.5"
+          />
+          <span className="text-slate-300">
+            <span className="font-medium">Verify hiring/ads signals via SerpAPI</span>{" "}
+            <span className="text-slate-500">
+              — spends 2 SerpAPI searches per lead (~100/month free quota goes fast). Off = research
+              stays 100% free; hiring-first leads carry their own posting evidence either way.
+              {!serpConfigured && " (SERPAPI_KEY not configured)"}
+            </span>
+            <span className="block text-[10px] text-slate-600 mt-0.5">
+              Saved instantly — applies to every future run until changed.
+            </span>
+          </span>
+        </label>
+      )}
 
       <form onSubmit={handleSubmit} className="space-y-4">
         <div className="grid grid-cols-1 sm:grid-cols-4 gap-4">

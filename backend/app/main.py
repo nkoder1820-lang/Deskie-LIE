@@ -9,7 +9,7 @@ from fastapi.middleware.cors import CORSMiddleware
 
 from app.config import settings
 from app.database import engine, Base
-from app.api import research, businesses, outreach
+from app.api import research, businesses, outreach, app_settings
 
 # Import models to register them with SQLAlchemy
 import app.models.business  # noqa: F401
@@ -86,6 +86,7 @@ app.add_middleware(
 app.include_router(research.router)
 app.include_router(businesses.router)
 app.include_router(outreach.router)
+app.include_router(app_settings.router)
 
 
 @app.get("/")

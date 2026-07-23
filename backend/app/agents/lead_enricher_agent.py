@@ -36,10 +36,12 @@ class LeadEnricherAgent:
             "ads_sources": [],
         }
 
-        if not settings.ENABLE_SERPAPI_ENRICHER:
+        from app import runtime_settings
+        enabled = runtime_settings.get("ENABLE_SERPAPI_ENRICHER", settings.ENABLE_SERPAPI_ENRICHER)
+        if not enabled:
             # 2 SerpAPI searches per lead is the #1 free-quota drain — opt-in
-            # only (ENABLE_SERPAPI_ENRICHER=true). Hiring-first leads never hit
-            # this path anyway: their evidence arrives pre-seeded.
+            # via the UI toggle (or ENABLE_SERPAPI_ENRICHER=true). Hiring-first
+            # leads never hit this path: their evidence arrives pre-seeded.
             logger.info("[Enricher] SerpAPI verification disabled — skipping.")
             return default_response
 

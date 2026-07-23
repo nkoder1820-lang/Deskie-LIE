@@ -205,6 +205,21 @@ export const api = {
       finished_at?: string;
     }>("/api/research/bulk/status"),
 
+  // Runtime app settings (persisted server-side, no .env edit needed)
+  getSettings: () =>
+    apiFetch<{
+      enable_serpapi_enricher: boolean;
+      serpapi_configured: boolean;
+      adzuna_configured: boolean;
+    }>("/api/settings"),
+
+  updateSettings: (patch: { enable_serpapi_enricher?: boolean }) =>
+    apiFetch<{
+      enable_serpapi_enricher: boolean;
+      serpapi_configured: boolean;
+      adzuna_configured: boolean;
+    }>("/api/settings", { method: "PATCH", body: JSON.stringify(patch) }),
+
   // Outreach sending
   outreachConfig: () =>
     apiFetch<{ email_sending_enabled: boolean; from_email: string | null }>(
