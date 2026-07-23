@@ -1,7 +1,10 @@
+from datetime import datetime
+
 from app.models.business import Business, LeadScore, LeadReport
 from app.database import get_db
 
 from fastapi import APIRouter, Depends, HTTPException, Query
+from pydantic import BaseModel
 from sqlalchemy.orm import Session, joinedload
 from sqlalchemy import desc
 from typing import Optional
@@ -95,6 +98,42 @@ def get_business(business_id: str, db: Session = Depends(get_db)):
     return result
 
 
+class SetDemoRequest(BaseModel):
+    demo_slug: str
+    demo_url: str
+
+
+@router.patch("/{business_id}/demo")
+def set_business_demo(business_id: str, req: SetDemoRequest, db: Session = Depends(get_db)):
+    """Called by deskie-agent after it creates a demo receptionist for this
+    lead, so the demo link shows up here too (and via GET /api/businesses).
+    Intentionally unauthenticated, matching every other endpoint in this
+    service — see README for the deployment-time caveat."""
+    from uuid import UUID as PyUUID
+
+    try:
+        biz_uuid = PyUUID(business_id)
+    except ValueError:
+        raise HTTPException(status_code=404, detail="Business not found")
+
+    business = db.query(Business).filter(Business.id == biz_uuid).first()
+    if not business:
+        raise HTTPException(status_code=404, detail="Business not found")
+
+    business.demo_slug = req.demo_slug
+    business.demo_url = req.demo_url
+    business.demo_created_at = datetime.utcnow()
+    db.commit()
+    db.refresh(business)
+
+    return {
+        "id": str(business.id),
+        "demo_slug": business.demo_slug,
+        "demo_url": business.demo_url,
+        "demo_created_at": business.demo_created_at.isoformat(),
+    }
+
+
 def _serialize_business(b: Business) -> dict:
     score = b.lead_score
     report = b.lead_report
@@ -126,6 +165,9 @@ def _serialize_business(b: Business) -> dict:
         "social_links": b.social_links,
         "detected_tech": b.detected_tech,
         "source": b.source,
+        "demo_slug": b.demo_slug,
+        "demo_url": b.demo_url,
+        "demo_created_at": b.demo_created_at.isoformat() if b.demo_created_at else None,
         "created_at": b.created_at.isoformat() if b.created_at else None,
         # Lead score
         "score": {

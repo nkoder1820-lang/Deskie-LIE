@@ -49,6 +49,9 @@ async def lifespan(app: FastAPI):
         "ALTER TABLE lead_reports ADD COLUMN outreach_email TEXT",
         "ALTER TABLE lead_reports ADD COLUMN whatsapp_message TEXT",
         "ALTER TABLE lead_scores ADD COLUMN pitch_source JSON",
+        "ALTER TABLE businesses ADD COLUMN demo_slug VARCHAR(120)",
+        "ALTER TABLE businesses ADD COLUMN demo_url TEXT",
+        "ALTER TABLE businesses ADD COLUMN demo_created_at DATETIME",
     ]
     with engine.begin() as conn:
         for stmt in MIGRATIONS:

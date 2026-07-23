@@ -2,7 +2,7 @@
 
 import { Business } from "@/lib/api";
 import Link from "next/link";
-import { useState, useCallback } from "react";
+import { useState, useCallback, type MouseEvent } from "react";
 
 interface Props {
   businesses: Business[];
@@ -61,6 +61,7 @@ export default function LeadTable({ businesses }: Props) {
             <th className="text-center px-4 py-3 font-medium hidden md:table-cell">Value</th>
             <th className="text-center px-4 py-3 font-medium hidden lg:table-cell">Digital</th>
             <th className="text-right px-4 py-3 font-medium">Reviews</th>
+            <th className="text-left px-4 py-3 font-medium">Demo</th>
             <th className="px-4 py-3" />
           </tr>
         </thead>
@@ -140,6 +141,9 @@ export default function LeadTable({ businesses }: Props) {
                 </td>
                 <td className="px-4 py-3 text-right text-slate-300">
                   {b.review_count != null ? b.review_count.toLocaleString() : "—"}
+                </td>
+                <td className="px-4 py-3">
+                  <DemoCell url={b.demo_url} />
                 </td>
                 <td className="px-4 py-3 text-right">
                   <Link
@@ -280,6 +284,46 @@ function CopyCell({
       <button
         onClick={handleCopy}
         title="Copy email"
+        className="shrink-0 text-[10px] text-slate-600 hover:text-indigo-400 transition-colors"
+      >
+        {copied ? "✓" : "⎘"}
+      </button>
+    </div>
+  );
+}
+
+function DemoCell({ url }: { url: string | null | undefined }) {
+  const [copied, setCopied] = useState(false);
+
+  const handleCopy = useCallback((e: MouseEvent) => {
+    e.preventDefault();
+    e.stopPropagation();
+    if (!url) return;
+    navigator.clipboard.writeText(url).then(() => {
+      setCopied(true);
+      setTimeout(() => setCopied(false), 1500);
+    });
+  }, [url]);
+
+  if (!url) {
+    return <span className="text-slate-600 text-xs">Not yet</span>;
+  }
+
+  return (
+    <div className="flex items-center gap-1.5 max-w-[160px]">
+      <a
+        href={url}
+        target="_blank"
+        rel="noopener noreferrer"
+        title={url}
+        onClick={(e) => e.stopPropagation()}
+        className="text-xs text-emerald-400 hover:text-emerald-300 transition-colors truncate"
+      >
+        {url.replace(/^https?:\/\//, "")}
+      </a>
+      <button
+        onClick={handleCopy}
+        title="Copy demo link"
         className="shrink-0 text-[10px] text-slate-600 hover:text-indigo-400 transition-colors"
       >
         {copied ? "✓" : "⎘"}

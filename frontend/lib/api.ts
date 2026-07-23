@@ -25,6 +25,9 @@ export interface Business {
   social_links: Record<string, string>;
   detected_tech: string[];
   source: string;
+  demo_slug: string | null;
+  demo_url: string | null;
+  demo_created_at: string | null;
   created_at: string | null;
   score: LeadScore | null;
   report: LeadReport | null;
