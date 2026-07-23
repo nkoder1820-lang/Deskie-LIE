@@ -11,17 +11,85 @@ const INDUSTRY_SUGGESTIONS = [
   "restaurants", "fine dining restaurants",
 ];
 
-const CITY_SUGGESTIONS = [
+const CITY_SUGGESTIONS: { name: string; flag: string }[] = [
   // India
-  "Mumbai", "Delhi", "Bangalore", "Hyderabad", "Chennai", "Pune",
+  { name: "Mumbai", flag: "🇮🇳" }, { name: "Delhi", flag: "🇮🇳" },
+  { name: "Bangalore", flag: "🇮🇳" }, { name: "Hyderabad", flag: "🇮🇳" },
+  { name: "Chennai", flag: "🇮🇳" }, { name: "Pune", flag: "🇮🇳" },
   // USA
-  "New York", "Los Angeles", "Chicago", "Houston", "Austin, TX", "Miami",
-  "Dallas", "San Francisco", "Seattle", "Boston", "Atlanta", "Phoenix",
+  { name: "New York", flag: "🇺🇸" }, { name: "Los Angeles", flag: "🇺🇸" },
+  { name: "Chicago", flag: "🇺🇸" }, { name: "Houston", flag: "🇺🇸" },
+  { name: "Austin, TX", flag: "🇺🇸" }, { name: "Miami", flag: "🇺🇸" },
+  { name: "Dallas", flag: "🇺🇸" }, { name: "San Francisco", flag: "🇺🇸" },
+  { name: "Seattle", flag: "🇺🇸" }, { name: "Boston", flag: "🇺🇸" },
+  { name: "Atlanta", flag: "🇺🇸" }, { name: "Phoenix", flag: "🇺🇸" },
   // Global
-  "London", "Toronto", "Sydney", "Dubai", "Singapore",
+  { name: "London", flag: "🇬🇧" }, { name: "Toronto", flag: "🇨🇦" },
+  { name: "Sydney", flag: "🇦🇺" }, { name: "Dubai", flag: "🇦🇪" },
+  { name: "Singapore", flag: "🇸🇬" },
 ];
 
-const COUNTRIES = ["", "India", "USA", "UK", "Canada", "Australia", "UAE", "Singapore"];
+const COUNTRIES: { value: string; label: string }[] = [
+  { value: "", label: "🌍 Auto-detect" },
+  { value: "India", label: "🇮🇳 India" },
+  { value: "USA", label: "🇺🇸 USA" },
+  { value: "UK", label: "🇬🇧 UK" },
+  { value: "Canada", label: "🇨🇦 Canada" },
+  { value: "Australia", label: "🇦🇺 Australia" },
+  { value: "UAE", label: "🇦🇪 UAE" },
+  { value: "Singapore", label: "🇸🇬 Singapore" },
+];
+
+/** Tap-to-fill suggestion chips under a text field. In bulk mode a chip
+ * toggles itself in/out of the comma-separated list; in single mode it just
+ * replaces the value. Far more discoverable than the old <datalist>, which
+ * only appeared once you happened to type a matching prefix. */
+function SuggestionChips({
+  options,
+  value,
+  onChange,
+  multi,
+}: {
+  options: { label: string; insert: string }[];
+  value: string;
+  onChange: (v: string) => void;
+  multi: boolean;
+}) {
+  const parts = value.split(",").map((s) => s.trim().toLowerCase()).filter(Boolean);
+  const isActive = (insert: string) =>
+    multi ? parts.includes(insert.toLowerCase()) : value.trim().toLowerCase() === insert.toLowerCase();
+
+  const toggle = (insert: string) => {
+    if (!multi) {
+      onChange(insert);
+      return;
+    }
+    const list = value.split(",").map((s) => s.trim()).filter(Boolean);
+    const idx = list.findIndex((s) => s.toLowerCase() === insert.toLowerCase());
+    if (idx >= 0) list.splice(idx, 1);
+    else list.push(insert);
+    onChange(list.join(", "));
+  };
+
+  return (
+    <div className="flex flex-wrap gap-1.5 mt-2">
+      {options.map((o) => (
+        <button
+          key={o.insert}
+          type="button"
+          onClick={() => toggle(o.insert)}
+          className={`px-2 py-0.5 rounded-full text-[11px] border transition-colors ${
+            isActive(o.insert)
+              ? "bg-indigo-600 border-indigo-500 text-white"
+              : "bg-white/5 border-white/15 text-slate-300 hover:border-indigo-400 hover:text-white"
+          }`}
+        >
+          {o.label}
+        </button>
+      ))}
+    </div>
+  );
+}
 
 interface Props {
   onComplete: () => void;
@@ -137,18 +205,18 @@ export default function ResearchForm({ onComplete }: Props) {
             </label>
             <input
               type="text"
-              list="industry-suggestions"
               value={industry}
               onChange={(e) => setIndustry(e.target.value)}
               placeholder={bulkMode ? "restaurants, med spas, dental clinics" : "e.g. med spas, law firms..."}
               required
               className="w-full bg-white/10 border border-white/20 rounded-lg px-3 py-2 text-white text-sm placeholder-slate-500 focus:outline-none focus:border-indigo-500 transition-colors"
             />
-            <datalist id="industry-suggestions">
-              {INDUSTRY_SUGGESTIONS.map((i) => (
-                <option key={i} value={i} />
-              ))}
-            </datalist>
+            <SuggestionChips
+              options={INDUSTRY_SUGGESTIONS.map((i) => ({ label: i, insert: i }))}
+              value={industry}
+              onChange={setIndustry}
+              multi={bulkMode}
+            />
           </div>
 
           <div className={bulkMode ? "sm:col-span-2" : ""}>
@@ -157,18 +225,18 @@ export default function ResearchForm({ onComplete }: Props) {
             </label>
             <input
               type="text"
-              list="city-suggestions"
               value={city}
               onChange={(e) => setCity(e.target.value)}
               placeholder={bulkMode ? "Austin TX, Miami, Dallas" : "e.g. Austin, TX"}
               required
               className="w-full bg-white/10 border border-white/20 rounded-lg px-3 py-2 text-white text-sm placeholder-slate-500 focus:outline-none focus:border-indigo-500 transition-colors"
             />
-            <datalist id="city-suggestions">
-              {CITY_SUGGESTIONS.map((c) => (
-                <option key={c} value={c} />
-              ))}
-            </datalist>
+            <SuggestionChips
+              options={CITY_SUGGESTIONS.map((c) => ({ label: `${c.flag} ${c.name}`, insert: c.name }))}
+              value={city}
+              onChange={setCity}
+              multi={bulkMode}
+            />
           </div>
 
           <div>
@@ -181,8 +249,8 @@ export default function ResearchForm({ onComplete }: Props) {
               className="w-full bg-white/10 border border-white/20 rounded-lg px-3 py-2 text-white text-sm focus:outline-none focus:border-indigo-500 transition-colors"
             >
               {COUNTRIES.map((c) => (
-                <option key={c} value={c} className="bg-slate-900">
-                  {c || "Auto-detect"}
+                <option key={c.value} value={c.value} className="bg-slate-900">
+                  {c.label}
                 </option>
               ))}
             </select>

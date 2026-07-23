@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useEffect, useCallback } from "react";
+import { useState, useEffect, useCallback, useMemo } from "react";
 import { api, Business, outreachLinks, pocOutreachLinks } from "@/lib/api";
 import LeadTable from "@/components/LeadTable";
 import ResearchForm from "@/components/ResearchForm";
@@ -12,16 +12,46 @@ const SORT_OPTIONS = [
   { value: "rating", label: "Rating" },
 ];
 
+// LIE doesn't store a country column — infer it from the phone prefix
+// (E.164 from Google Places), longest prefix first so +971 wins over +91.
+const COUNTRY_PREFIXES: [string, string][] = [
+  ["+971", "🇦🇪 UAE"], ["+353", "🇮🇪 Ireland"], ["+91", "🇮🇳 India"],
+  ["+44", "🇬🇧 UK"], ["+61", "🇦🇺 Australia"], ["+65", "🇸🇬 Singapore"],
+  ["+64", "🇳🇿 New Zealand"], ["+1", "🇺🇸 USA / Canada"],
+];
+
+function inferCountry(b: Business): string {
+  for (const raw of [b.phone, ...(b.phones || [])]) {
+    const p = (raw || "").replace(/[\s()-]/g, "");
+    if (!p.startsWith("+")) continue;
+    const hit = COUNTRY_PREFIXES.find(([prefix]) => p.startsWith(prefix));
+    if (hit) return hit[1];
+  }
+  return "Other";
+}
+
+function prettyCategory(c: string): string {
+  return (c || "")
+    .replace(/_/g, " ")
+    .replace(/\b\w/g, (ch) => ch.toUpperCase());
+}
+
 export default function DashboardPage() {
   const [businesses, setBusinesses] = useState<Business[]>([]);
   const [total, setTotal] = useState(0);
   const [loading, setLoading] = useState(true);
   const [showForm, setShowForm] = useState(false);
 
-  // Filters
+  // Filters — applied client-side over one full fetch (backend caps at 200
+  // rows), so every dropdown change is instant and options self-populate
+  // from the actual data.
+  const [search, setSearch] = useState("");
   const [priority, setPriority] = useState("");
   const [sortBy, setSortBy] = useState("final_score");
   const [cityFilter, setCityFilter] = useState("");
+  const [countryFilter, setCountryFilter] = useState("");
+  const [categoryFilter, setCategoryFilter] = useState("");
+  const [demoFilter, setDemoFilter] = useState("");
 
   // Bulk PoC research
   const [pocBulkLoading, setPocBulkLoading] = useState(false);
@@ -30,12 +60,7 @@ export default function DashboardPage() {
   const loadBusinesses = useCallback(async () => {
     setLoading(true);
     try {
-      const data = await api.listBusinesses({
-        priority: priority || undefined,
-        sort_by: sortBy,
-        city: cityFilter || undefined,
-        limit: 100,
-      });
+      const data = await api.listBusinesses({ sort_by: "final_score", limit: 200 });
       setBusinesses(data.businesses);
       setTotal(data.total);
     } catch (err) {
@@ -43,11 +68,52 @@ export default function DashboardPage() {
     } finally {
       setLoading(false);
     }
-  }, [priority, sortBy, cityFilter]);
+  }, []);
 
   useEffect(() => {
     loadBusinesses();
   }, [loadBusinesses]);
+
+  // Dropdown options, derived from the loaded data.
+  const cityOptions = useMemo(
+    () => [...new Set(businesses.map((b) => b.city).filter(Boolean))].sort(),
+    [businesses],
+  );
+  // Filter on prettified labels so raw variants ("med spas" / "med_spas")
+  // collapse into one option.
+  const categoryOptions = useMemo(
+    () => [...new Set(businesses.map((b) => prettyCategory(b.category)).filter(Boolean))].sort(),
+    [businesses],
+  );
+  const countryOptions = useMemo(
+    () => [...new Set(businesses.map(inferCountry))].sort(),
+    [businesses],
+  );
+
+  const displayed = useMemo(() => {
+    const q = search.trim().toLowerCase();
+    const filtered = businesses.filter((b) => {
+      if (q && !(b.name || "").toLowerCase().includes(q)) return false;
+      if (cityFilter && b.city !== cityFilter) return false;
+      if (countryFilter && inferCountry(b) !== countryFilter) return false;
+      if (categoryFilter && prettyCategory(b.category) !== categoryFilter) return false;
+      if (priority && b.score?.priority !== priority) return false;
+      if (demoFilter === "yes" && !b.demo_url) return false;
+      if (demoFilter === "no" && b.demo_url) return false;
+      return true;
+    });
+    return filtered.sort((a, b) => {
+      if (sortBy === "rating") return (b.rating ?? -1) - (a.rating ?? -1);
+      if (sortBy === "review_count") return (b.review_count ?? -1) - (a.review_count ?? -1);
+      return (b.score?.final_score ?? -1) - (a.score?.final_score ?? -1);
+    });
+  }, [businesses, search, cityFilter, countryFilter, categoryFilter, priority, demoFilter, sortBy]);
+
+  const filtersActive = !!(search || cityFilter || countryFilter || categoryFilter || priority || demoFilter);
+  const clearFilters = () => {
+    setSearch(""); setCityFilter(""); setCountryFilter("");
+    setCategoryFilter(""); setPriority(""); setDemoFilter("");
+  };
 
   const handleBulkResearchPoc = async () => {
     const withoutPoc = businesses.filter((b) => !b.poc_researched_at).length;
@@ -73,8 +139,9 @@ export default function DashboardPage() {
     }
   };
 
+  // Exports the filtered view — what you see is what you get.
   const handleExportCSV = () => {
-    if (businesses.length === 0) return;
+    if (displayed.length === 0) return;
     const q = (v: string | null | undefined) => `"${(v || "").replace(/"/g, '""')}"`;
     const headers = [
       "Business Name", "City", "Category", "Score", "Priority", "Pitch Angle",
@@ -95,7 +162,7 @@ export default function DashboardPage() {
       "Pain Score", "Value Score", "Digital Score", "Timing Score"
     ];
 
-    const rows = businesses.map(b => {
+    const rows = displayed.map(b => {
       const send = outreachLinks(b);
       const pocCols: (string | number)[] = [];
       for (let i = 0; i < 3; i++) {
@@ -228,6 +295,47 @@ export default function DashboardPage() {
 
         {/* Filters */}
         <div className="flex flex-wrap gap-3 items-center">
+          <input
+            type="text"
+            placeholder="🔍 Search business..."
+            value={search}
+            onChange={(e) => setSearch(e.target.value)}
+            className="bg-white/10 border border-white/20 rounded-lg px-3 py-1.5 text-sm text-white placeholder-slate-500 focus:outline-none focus:border-indigo-500 w-48"
+          />
+
+          <select
+            value={cityFilter}
+            onChange={(e) => setCityFilter(e.target.value)}
+            className="bg-white/10 border border-white/20 rounded-lg px-3 py-1.5 text-sm text-white focus:outline-none focus:border-indigo-500"
+          >
+            <option value="" className="bg-slate-900">All Cities</option>
+            {cityOptions.map((c) => (
+              <option key={c} value={c} className="bg-slate-900">{c}</option>
+            ))}
+          </select>
+
+          <select
+            value={countryFilter}
+            onChange={(e) => setCountryFilter(e.target.value)}
+            className="bg-white/10 border border-white/20 rounded-lg px-3 py-1.5 text-sm text-white focus:outline-none focus:border-indigo-500"
+          >
+            <option value="" className="bg-slate-900">All Countries</option>
+            {countryOptions.map((c) => (
+              <option key={c} value={c} className="bg-slate-900">{c}</option>
+            ))}
+          </select>
+
+          <select
+            value={categoryFilter}
+            onChange={(e) => setCategoryFilter(e.target.value)}
+            className="bg-white/10 border border-white/20 rounded-lg px-3 py-1.5 text-sm text-white focus:outline-none focus:border-indigo-500"
+          >
+            <option value="" className="bg-slate-900">All Business Types</option>
+            {categoryOptions.map((c) => (
+              <option key={c} value={c} className="bg-slate-900">{c}</option>
+            ))}
+          </select>
+
           <select
             value={priority}
             onChange={(e) => setPriority(e.target.value)}
@@ -240,22 +348,33 @@ export default function DashboardPage() {
           </select>
 
           <select
+            value={demoFilter}
+            onChange={(e) => setDemoFilter(e.target.value)}
+            className="bg-white/10 border border-white/20 rounded-lg px-3 py-1.5 text-sm text-white focus:outline-none focus:border-indigo-500"
+          >
+            <option value="" className="bg-slate-900">Demo: Any</option>
+            <option value="yes" className="bg-slate-900">Demo Created</option>
+            <option value="no" className="bg-slate-900">No Demo Yet</option>
+          </select>
+
+          <select
             value={sortBy}
             onChange={(e) => setSortBy(e.target.value)}
             className="bg-white/10 border border-white/20 rounded-lg px-3 py-1.5 text-sm text-white focus:outline-none focus:border-indigo-500"
           >
             {SORT_OPTIONS.map((o) => (
-              <option key={o.value} value={o.value} className="bg-slate-900">{o.label}</option>
+              <option key={o.value} value={o.value} className="bg-slate-900">Sort: {o.label}</option>
             ))}
           </select>
 
-          <input
-            type="text"
-            placeholder="Filter by city..."
-            value={cityFilter}
-            onChange={(e) => setCityFilter(e.target.value)}
-            className="bg-white/10 border border-white/20 rounded-lg px-3 py-1.5 text-sm text-white placeholder-slate-500 focus:outline-none focus:border-indigo-500 w-40"
-          />
+          {filtersActive && (
+            <button
+              onClick={clearFilters}
+              className="text-xs text-indigo-300 hover:text-indigo-200 transition-colors px-3 py-1.5 border border-indigo-500/40 rounded-lg"
+            >
+              ✕ Clear filters
+            </button>
+          )}
 
           <button
             onClick={loadBusinesses}
@@ -298,7 +417,14 @@ export default function DashboardPage() {
             <span className="animate-spin text-2xl mr-3">⟳</span> Loading leads...
           </div>
         ) : (
-          <LeadTable businesses={businesses} />
+          <>
+            {filtersActive && (
+              <p className="text-xs text-slate-400 -mt-2">
+                Showing {displayed.length} of {businesses.length} leads
+              </p>
+            )}
+            <LeadTable businesses={displayed} />
+          </>
         )}
       </main>
     </div>
