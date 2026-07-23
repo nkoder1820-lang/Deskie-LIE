@@ -259,6 +259,12 @@ class LeadIntelligenceOrchestrator:
             existing.review_count = biz.review_count
             existing.opening_hours = biz.opening_hours
             existing.maps_url = biz.maps_url or existing.maps_url
+            # Hiring evidence upgrades provenance: a lead first found by
+            # industry search that later shows up in job postings becomes a
+            # hiring-first lead (never the reverse — classic re-discovery
+            # shouldn't erase a hiring signal).
+            if (biz.source or "").endswith("_jobs"):
+                existing.source = biz.source
             db.commit()
             return existing
         else:

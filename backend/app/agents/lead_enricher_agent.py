@@ -36,6 +36,13 @@ class LeadEnricherAgent:
             "ads_sources": [],
         }
 
+        if not settings.ENABLE_SERPAPI_ENRICHER:
+            # 2 SerpAPI searches per lead is the #1 free-quota drain — opt-in
+            # only (ENABLE_SERPAPI_ENRICHER=true). Hiring-first leads never hit
+            # this path anyway: their evidence arrives pre-seeded.
+            logger.info("[Enricher] SerpAPI verification disabled — skipping.")
+            return default_response
+
         if not settings.SERPAPI_KEY:
             logger.warning("SERPAPI_KEY not set. Skipping LeadEnricherAgent.")
             return default_response

@@ -165,6 +165,9 @@ def _serialize_business(b: Business) -> dict:
         "social_links": b.social_links,
         "detected_tech": b.detected_tech,
         "source": b.source,
+        # How this lead was found: via live job postings ("hiring", the
+        # strongest buying signal) or classic industry search ("industry").
+        "discovery": "hiring" if (b.source or "").endswith("_jobs") else "industry",
         "demo_slug": b.demo_slug,
         "demo_url": b.demo_url,
         "demo_created_at": b.demo_created_at.isoformat() if b.demo_created_at else None,

@@ -25,6 +25,9 @@ export interface Business {
   social_links: Record<string, string>;
   detected_tech: string[];
   source: string;
+  /** "hiring" = found via live job postings (strongest buying signal);
+   *  "industry" = classic business search. */
+  discovery: "hiring" | "industry";
   demo_slug: string | null;
   demo_url: string | null;
   demo_created_at: string | null;
@@ -194,6 +197,8 @@ export const api = {
       leads_found?: number;
       current?: string | null;
       errors?: string[];
+      started_at?: string;
+      finished_at?: string;
     }>("/api/research/bulk/status"),
 
   // Outreach sending

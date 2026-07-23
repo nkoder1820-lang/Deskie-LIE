@@ -50,6 +50,7 @@ export default function LeadTable({ businesses }: Props) {
         <thead>
           <tr className="border-b border-white/10 text-slate-400 text-xs uppercase tracking-widest">
             <th className="text-left px-4 py-3 font-medium">Business</th>
+            <th className="text-left px-4 py-3 font-medium">Found Via</th>
             <th className="text-left px-4 py-3 font-medium">Pitch Angle</th>
             <th className="text-left px-4 py-3 font-medium hidden lg:table-cell">Email</th>
             <th className="text-left px-4 py-3 font-medium hidden md:table-cell">Phone</th>
@@ -80,6 +81,23 @@ export default function LeadTable({ businesses }: Props) {
                   <div className="text-xs text-slate-500 mt-0.5 capitalize">
                     {b.category.replace(/_/g, " ")} • {b.city}
                   </div>
+                </td>
+                <td className="px-4 py-3">
+                  {b.discovery === "hiring" ? (
+                    <span
+                      className="px-2 py-0.5 rounded-md text-[11px] font-semibold bg-emerald-500/15 text-emerald-400 border border-emerald-500/40 whitespace-nowrap"
+                      title="Found via a live job posting — this business is actively hiring right now"
+                    >
+                      🎯 Hiring
+                    </span>
+                  ) : (
+                    <span
+                      className="px-2 py-0.5 rounded-md text-[11px] text-slate-400 border border-white/10 whitespace-nowrap"
+                      title="Found via classic industry search"
+                    >
+                      🏢 Search
+                    </span>
+                  )}
                 </td>
                 <td className="px-4 py-3">
                   {score?.pitch_angle ? (

@@ -7,6 +7,9 @@ import ResearchForm from "@/components/ResearchForm";
 
 const PRIORITIES = ["", "HOT", "HIGH", "MEDIUM", "LOW"];
 const SORT_OPTIONS = [
+  // Default: leads found via live job postings first (they're actively hiring
+  // RIGHT NOW — the strongest buying signal), then everything by score.
+  { value: "hiring_first", label: "Hiring first" },
   { value: "final_score", label: "Deskie Score" },
   { value: "review_count", label: "Reviews" },
   { value: "rating", label: "Rating" },
@@ -47,11 +50,12 @@ export default function DashboardPage() {
   // from the actual data.
   const [search, setSearch] = useState("");
   const [priority, setPriority] = useState("");
-  const [sortBy, setSortBy] = useState("final_score");
+  const [sortBy, setSortBy] = useState("hiring_first");
   const [cityFilter, setCityFilter] = useState("");
   const [countryFilter, setCountryFilter] = useState("");
   const [categoryFilter, setCategoryFilter] = useState("");
   const [demoFilter, setDemoFilter] = useState("");
+  const [sourceFilter, setSourceFilter] = useState("");
 
   // Bulk PoC research
   const [pocBulkLoading, setPocBulkLoading] = useState(false);
@@ -112,19 +116,28 @@ export default function DashboardPage() {
       if (priority && b.score?.priority !== priority) return false;
       if (demoFilter === "yes" && !b.demo_url) return false;
       if (demoFilter === "no" && b.demo_url) return false;
+      if (sourceFilter && b.discovery !== sourceFilter) return false;
       return true;
     });
+    const byScore = (a: Business, b: Business) =>
+      (b.score?.final_score ?? -1) - (a.score?.final_score ?? -1);
     return filtered.sort((a, b) => {
+      if (sortBy === "hiring_first") {
+        const ah = a.discovery === "hiring" ? 1 : 0;
+        const bh = b.discovery === "hiring" ? 1 : 0;
+        if (ah !== bh) return bh - ah;
+        return byScore(a, b);
+      }
       if (sortBy === "rating") return (b.rating ?? -1) - (a.rating ?? -1);
       if (sortBy === "review_count") return (b.review_count ?? -1) - (a.review_count ?? -1);
-      return (b.score?.final_score ?? -1) - (a.score?.final_score ?? -1);
+      return byScore(a, b);
     });
-  }, [businesses, search, cityFilter, countryFilter, categoryFilter, priority, demoFilter, sortBy]);
+  }, [businesses, search, cityFilter, countryFilter, categoryFilter, priority, demoFilter, sourceFilter, sortBy]);
 
-  const filtersActive = !!(search || cityFilter || countryFilter || categoryFilter || priority || demoFilter);
+  const filtersActive = !!(search || cityFilter || countryFilter || categoryFilter || priority || demoFilter || sourceFilter);
   const clearFilters = () => {
     setSearch(""); setCityFilter(""); setCountryFilter("");
-    setCategoryFilter(""); setPriority(""); setDemoFilter("");
+    setCategoryFilter(""); setPriority(""); setDemoFilter(""); setSourceFilter("");
   };
 
   // Rendering thousands of heavy rows at once janks the page — reveal in
@@ -132,8 +145,38 @@ export default function DashboardPage() {
   const [visibleCount, setVisibleCount] = useState(200);
   useEffect(() => {
     setVisibleCount(200);
-  }, [search, cityFilter, countryFilter, categoryFilter, priority, demoFilter, sortBy]);
+  }, [search, cityFilter, countryFilter, categoryFilter, priority, demoFilter, sourceFilter, sortBy]);
   const visible = displayed.slice(0, visibleCount);
+
+  // ── Background job transparency ─────────────────────────────────────────
+  // Research jobs run in the background; without this the only feedback lived
+  // inside the (closeable) form — a failed run just "vanished". Poll the job
+  // status and keep a banner on the dashboard: spinner + live progress while
+  // running, and a persistent success/error summary once finished.
+  type JobState = {
+    status: string; total_pairs?: number; pairs_done?: number;
+    leads_found?: number; current?: string | null; errors?: string[];
+    finished_at?: string;
+  };
+  const [job, setJob] = useState<JobState | null>(null);
+  const [dismissedJob, setDismissedJob] = useState<string | null>(null);
+  useEffect(() => {
+    let stopped = false;
+    const tick = async () => {
+      try {
+        const s = (await api.bulkStatus()) as JobState;
+        if (!stopped) setJob(s);
+      } catch { /* backend briefly unreachable — keep polling */ }
+    };
+    tick();
+    const id = setInterval(tick, 5000);
+    return () => { stopped = true; clearInterval(id); };
+  }, []);
+  // Refresh the table as background leads land / when the job finishes.
+  useEffect(() => {
+    if (job?.status === "running" || job?.status === "completed") loadBusinesses();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [job?.status, job?.leads_found]);
 
   const handleBulkResearchPoc = async () => {
     const withoutPoc = businesses.filter((b) => !b.poc_researched_at).length;
@@ -313,6 +356,49 @@ export default function DashboardPage() {
           ))}
         </div>
 
+        {/* Background research job status — always visible, can't "vanish" */}
+        {job?.status === "running" && (
+          <div className="bg-indigo-500/10 border border-indigo-500/30 rounded-xl px-4 py-3 text-sm text-indigo-200 flex items-center gap-3">
+            <span className="animate-spin text-lg">⟳</span>
+            <div>
+              <p className="font-medium">
+                Research job running{job.current ? ` — ${job.current}` : ""}
+              </p>
+              <p className="text-xs text-indigo-300/80 mt-0.5">
+                {job.pairs_done ?? 0}/{job.total_pairs ?? "?"} searches done · {job.leads_found ?? 0} leads so far — new leads appear below as they land
+              </p>
+            </div>
+          </div>
+        )}
+        {job?.status === "completed" && job.finished_at && dismissedJob !== job.finished_at && (
+          <div
+            className={`border rounded-xl px-4 py-3 text-sm flex items-start justify-between gap-3 ${
+              job.errors?.length
+                ? "bg-red-500/10 border-red-500/30 text-red-300"
+                : "bg-green-500/10 border-green-500/30 text-green-300"
+            }`}
+          >
+            <div>
+              <p className="font-medium">
+                {job.errors?.length
+                  ? "⚠️ Last research job finished with problems"
+                  : "✅ Last research job completed"}
+                {" — "}{job.leads_found ?? 0} leads found
+              </p>
+              {(job.errors || []).map((e, i) => (
+                <p key={i} className="text-xs mt-1 opacity-90">{e}</p>
+              ))}
+            </div>
+            <button
+              onClick={() => setDismissedJob(job.finished_at!)}
+              className="shrink-0 opacity-60 hover:opacity-100 transition-opacity"
+              title="Dismiss"
+            >
+              ✕
+            </button>
+          </div>
+        )}
+
         {/* Filters */}
         <div className="flex flex-wrap gap-3 items-center">
           <input
@@ -365,6 +451,16 @@ export default function DashboardPage() {
             {PRIORITIES.filter(Boolean).map((p) => (
               <option key={p} value={p} className="bg-slate-900">{p}</option>
             ))}
+          </select>
+
+          <select
+            value={sourceFilter}
+            onChange={(e) => setSourceFilter(e.target.value)}
+            className="bg-white/10 border border-white/20 rounded-lg px-3 py-1.5 text-sm text-white focus:outline-none focus:border-indigo-500"
+          >
+            <option value="" className="bg-slate-900">Found Via: Any</option>
+            <option value="hiring" className="bg-slate-900">🎯 Hiring-first</option>
+            <option value="industry" className="bg-slate-900">🏢 Industry search</option>
           </select>
 
           <select

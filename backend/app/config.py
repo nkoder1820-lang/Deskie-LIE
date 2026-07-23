@@ -17,6 +17,17 @@ class Settings(BaseSettings):
     # SerpAPI (optional)
     SERPAPI_KEY: Optional[str] = None
 
+    # Adzuna (free official jobs API — primary provider for hiring-first
+    # discovery; register at developer.adzuna.com)
+    ADZUNA_APP_ID: str = ""
+    ADZUNA_APP_KEY: str = ""
+
+    # Per-lead hiring/ads verification during CLASSIC research costs 2 SerpAPI
+    # searches per lead — the #1 quota drain (149 leads ≈ 300 searches). Off by
+    # default; scoring still works from website/review/social signals, and
+    # hiring-first leads carry their own posting evidence anyway.
+    ENABLE_SERPAPI_ENRICHER: bool = False
+
     # Outreach sending (optional — Resend API)
     RESEND_API_KEY: str = ""
     OUTREACH_FROM_EMAIL: str = ""      # e.g. "Deskie <hello@yourdomain.com>" (verified in Resend)
