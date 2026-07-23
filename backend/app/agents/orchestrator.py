@@ -88,15 +88,52 @@ class LeadIntelligenceOrchestrator:
         logger.info(f"[Orchestrator] Research complete. {len(results)} leads scored.")
         return results
 
-    def _process_business_threadsafe(self, biz, default_region: str) -> dict:
+    def run_hiring_research(self, city: str, role: str = "receptionist",
+                            industry: str | None = None, country: str | None = None,
+                            max_results: int = 20) -> list[dict]:
+        """Hiring-first pipeline: start from live job postings (Google Jobs via
+        SerpAPI — aggregates LinkedIn/Indeed/etc.), resolve each posting's
+        company to a real business, then run the standard enrichment with the
+        hiring evidence pre-seeded (skips the enricher's own SerpAPI calls)."""
+        from app.agents.hiring_discovery_agent import HiringDiscoveryAgent
+
+        logger.info(f"[Orchestrator] Hiring-first research: '{role}' in {city}"
+                    + (f" ({industry})" if industry else ""))
+        pairs = HiringDiscoveryAgent().run(
+            city=city, role=role, industry=industry, country=country, max_results=max_results,
+        )
+        default_region = region_from_address(country) if country else "IN"
+
+        results = []
+        with ThreadPoolExecutor(max_workers=MAX_WORKERS) as pool:
+            futures = {
+                pool.submit(self._process_business_threadsafe, biz, default_region, seed): biz
+                for biz, seed in pairs
+            }
+            for future in as_completed(futures):
+                biz = futures[future]
+                try:
+                    result = future.result()
+                    if result:
+                        results.append(result)
+                except Exception as e:
+                    logger.error(f"[Orchestrator] Failed to process {biz.name}: {e}", exc_info=True)
+
+        results.sort(key=lambda x: x.get("final_score", 0), reverse=True)
+        logger.info(f"[Orchestrator] Hiring-first research complete. {len(results)} leads scored.")
+        return results
+
+    def _process_business_threadsafe(self, biz, default_region: str,
+                                     enricher_seed: dict | None = None) -> dict:
         """Worker entry point: fresh DB session per thread."""
         db = SessionLocal()
         try:
-            return self._process_business(biz, db, default_region)
+            return self._process_business(biz, db, default_region, enricher_seed)
         finally:
             db.close()
 
-    def _process_business(self, biz, db: Session, default_region: str = "IN") -> dict:
+    def _process_business(self, biz, db: Session, default_region: str = "IN",
+                          enricher_seed: dict | None = None) -> dict:
         """Process a single discovered business through all agents."""
         logger.info(f"[Orchestrator] Processing: {biz.name}")
 
@@ -153,8 +190,10 @@ class LeadIntelligenceOrchestrator:
         )
         self._save_research(biz_id, "value_agent", value_result, db)
 
-        # Phase 2e: Lead Enrichment (Hiring/Ads)
-        enricher_result = self.enricher.run(business_name=biz.name, city=biz.city)
+        # Phase 2e: Lead Enrichment (Hiring/Ads). Hiring-first discovery hands
+        # us the evidence it already holds — no need to burn 2 more SerpAPI
+        # searches re-verifying what we started from.
+        enricher_result = enricher_seed or self.enricher.run(business_name=biz.name, city=biz.city)
         self._save_research(biz_id, "lead_enricher_agent", enricher_result, db)
 
         # Phase 3: Scoring

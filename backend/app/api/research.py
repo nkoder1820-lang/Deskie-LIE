@@ -53,6 +53,10 @@ def run_research(
     """
     Kick off a full research pipeline for an industry + city (+ optional country).
     Industry can be any free-text niche — presets are just suggestions.
+
+    Runs up to 100 leads synchronously; anything bigger (up to 2000) moves to
+    the background job — a 2000-lead run takes hours (LLM rate limits), far
+    beyond any HTTP timeout. Poll /api/research/bulk/status for progress.
     """
     industry = req.industry.strip()
     if not industry:
@@ -60,12 +64,28 @@ def run_research(
     if not req.city.strip():
         raise HTTPException(status_code=400, detail="City must not be empty")
 
+    if req.max_results > 100:
+        bulk_req = BulkResearchRequest(
+            industries=[industry],
+            cities=[req.city.strip()],
+            country=req.country,
+            max_results_per_pair=min(req.max_results, 2000),
+        )
+        _reserve_bulk_slot()
+        background_tasks.add_task(_run_bulk_job, bulk_req)
+        return ResearchResponse(
+            status="started",
+            message=f"Background job started for up to {min(req.max_results, 2000)} leads — "
+                    "leads appear in the table as they land",
+            leads_count=0,
+        )
+
     try:
         orchestrator = LeadIntelligenceOrchestrator(db)
         results = orchestrator.run_research(
             industry=industry,
             city=req.city.strip(),
-            max_results=min(req.max_results, 300),
+            max_results=min(req.max_results, 100),
             country=(req.country or "").strip() or None,
         )
         return ResearchResponse(
@@ -84,11 +104,19 @@ class BulkResearchRequest(BaseModel):
     industries: list[str]            # e.g. ["restaurants", "med spas"]
     cities: list[str]                # e.g. ["Austin, TX", "Miami"]
     country: Optional[str] = None
-    max_results_per_pair: int = 60   # up to 300 (query-variant fan-out)
+    max_results_per_pair: int = 60   # up to 2000 (query-variant + area fan-out)
 
 
 _bulk_lock = threading.Lock()
 _bulk_state: dict = {"status": "idle"}
+
+
+def _reserve_bulk_slot():
+    """Only one background research job at a time — raises 409 if one is live."""
+    with _bulk_lock:
+        if _bulk_state.get("status") == "running":
+            raise HTTPException(status_code=409, detail="A background research job is already running")
+        _bulk_state["status"] = "running"  # reserve before the task actually starts
 
 
 def _run_bulk_job(req: BulkResearchRequest):
@@ -113,7 +141,7 @@ def _run_bulk_job(req: BulkResearchRequest):
             results = orchestrator.run_research(
                 industry=industry,
                 city=city,
-                max_results=min(req.max_results_per_pair, 300),
+                max_results=min(req.max_results_per_pair, 2000),
                 country=(req.country or "").strip() or None,
             )
             with _bulk_lock:
@@ -142,16 +170,13 @@ def run_bulk_research(req: BulkResearchRequest, background_tasks: BackgroundTask
     """
     if not req.industries or not req.cities:
         raise HTTPException(status_code=400, detail="industries and cities must not be empty")
-    with _bulk_lock:
-        if _bulk_state.get("status") == "running":
-            raise HTTPException(status_code=409, detail="A bulk job is already running")
-        _bulk_state["status"] = "running"  # reserve before the task actually starts
+    _reserve_bulk_slot()
     background_tasks.add_task(_run_bulk_job, req)
     pairs = len([1 for i in req.industries for c in req.cities])
     return {
         "status": "started",
         "pairs": pairs,
-        "max_leads": pairs * min(req.max_results_per_pair, 300),
+        "max_leads": pairs * min(req.max_results_per_pair, 2000),
         "poll": "/api/research/bulk/status",
     }
 
@@ -160,6 +185,79 @@ def run_bulk_research(req: BulkResearchRequest, background_tasks: BackgroundTask
 def bulk_status():
     with _bulk_lock:
         return dict(_bulk_state)
+
+
+# ── Hiring-first research ────────────────────────────────────────────────────
+# Starts from live job postings (Google Jobs via SerpAPI — aggregates
+# LinkedIn, Indeed, ZipRecruiter, company career pages) and works back to the
+# business behind each posting, then runs the full enrichment pipeline with
+# the hiring evidence pre-seeded. Quota: ~1 SerpAPI credit per ~10 postings
+# + 1 Places lookup per company; the enricher's own 2 SerpAPI calls per lead
+# are SKIPPED for these leads.
+
+class HiringResearchRequest(BaseModel):
+    city: str                        # e.g. "Austin, TX"
+    role: str = "receptionist"       # the role being hired for
+    industry: Optional[str] = None   # optional niche filter, e.g. "dental"
+    country: Optional[str] = None
+    max_results: int = 20            # businesses (not postings), up to 2000
+
+
+def _run_hiring_job(req: HiringResearchRequest):
+    with _bulk_lock:
+        _bulk_state.update({
+            "status": "running",
+            "total_pairs": 1,
+            "pairs_done": 0,
+            "leads_found": 0,
+            "current": f"hiring-first: {req.role} in {req.city}",
+            "errors": [],
+            "started_at": datetime.utcnow().isoformat(),
+        })
+    session = SessionLocal()
+    try:
+        orchestrator = LeadIntelligenceOrchestrator(session)
+        results = orchestrator.run_hiring_research(
+            city=req.city.strip(),
+            role=req.role.strip() or "receptionist",
+            industry=(req.industry or "").strip() or None,
+            country=(req.country or "").strip() or None,
+            max_results=min(req.max_results, 2000),
+        )
+        with _bulk_lock:
+            _bulk_state["leads_found"] = len(results)
+    except Exception as e:
+        logger.error(f"[HiringResearch] Failed: {e}", exc_info=True)
+        with _bulk_lock:
+            _bulk_state["errors"].append(f"hiring-first {req.role} in {req.city}: {e}")
+    finally:
+        session.close()
+        with _bulk_lock:
+            _bulk_state["pairs_done"] = 1
+            _bulk_state["status"] = "completed"
+            _bulk_state["current"] = None
+            _bulk_state["finished_at"] = datetime.utcnow().isoformat()
+
+
+@router.post("/hiring")
+def run_hiring_research(req: HiringResearchRequest, background_tasks: BackgroundTasks):
+    """
+    Find businesses that are ALREADY hiring the given role right now, and turn
+    each into a fully-enriched lead (contacts, decision makers, pitch angle,
+    outreach drafts). Always runs in the background — poll
+    /api/research/bulk/status for progress.
+    """
+    if not req.city.strip():
+        raise HTTPException(status_code=400, detail="City must not be empty")
+    _reserve_bulk_slot()
+    background_tasks.add_task(_run_hiring_job, req)
+    return {
+        "status": "started",
+        "mode": "hiring",
+        "role": req.role,
+        "city": req.city,
+        "poll": "/api/research/bulk/status",
+    }
 
 
 @router.post("/enrich-contacts")

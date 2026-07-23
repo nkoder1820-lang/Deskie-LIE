@@ -21,7 +21,7 @@ def list_businesses(
     category: Optional[str] = Query(None),
     priority: Optional[str] = Query(None),
     sort_by: str = Query("final_score", description="final_score | rating | review_count"),
-    limit: int = Query(50, le=200),
+    limit: int = Query(50, le=500),
     offset: int = Query(0),
     db: Session = Depends(get_db),
 ):

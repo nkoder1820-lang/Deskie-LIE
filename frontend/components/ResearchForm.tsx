@@ -95,9 +95,16 @@ interface Props {
   onComplete: () => void;
 }
 
+const ROLE_SUGGESTIONS = [
+  "receptionist", "front desk", "office assistant", "medical receptionist",
+  "dental receptionist", "salon receptionist", "patient coordinator",
+];
+
 export default function ResearchForm({ onComplete }: Props) {
+  const [mode, setMode] = useState<"industry" | "hiring">("industry");
   const [bulkMode, setBulkMode] = useState(false);
   const [industry, setIndustry] = useState("dental clinics");
+  const [role, setRole] = useState("receptionist");
   const [city, setCity] = useState("Mumbai");
   const [country, setCountry] = useState("");
   const [maxResults, setMaxResults] = useState(10);
@@ -139,6 +146,22 @@ export default function ResearchForm({ onComplete }: Props) {
     setStatus(null);
 
     try {
+      if (mode === "hiring") {
+        const result = await api.runHiringResearch({
+          city,
+          role: role.trim() || "receptionist",
+          industry: industry.trim() || undefined,
+          country: country || undefined,
+          max_results: maxResults,
+        });
+        setStatus({
+          type: "success",
+          msg: `🎯 Hiring-first job started (${result.mode}) — finding businesses hiring "${role}" in ${city}. Leads appear in the table as they land.`,
+        });
+        setLoading(false);
+        pollBulk();
+        return;
+      }
       if (bulkMode) {
         const industries = industry.split(",").map((s) => s.trim()).filter(Boolean);
         const cities = city.split(",").map((s) => s.trim()).filter(Boolean);
@@ -162,6 +185,13 @@ export default function ResearchForm({ onComplete }: Props) {
         country: country || undefined,
         max_results: maxResults,
       });
+      if (result.status === "started") {
+        // Big runs (>100 leads) move to the background — poll like bulk.
+        setStatus({ type: "success", msg: `🚀 ${result.message}` });
+        setLoading(false);
+        pollBulk();
+        return;
+      }
       setStatus({
         type: "success",
         msg: `✅ ${result.message} — ${result.leads_count} leads discovered`,
@@ -179,43 +209,110 @@ export default function ResearchForm({ onComplete }: Props) {
 
   return (
     <div className="bg-white/5 border border-white/10 rounded-2xl p-6">
-      <div className="flex items-center justify-between mb-1">
+      <div className="flex items-center justify-between mb-3 flex-wrap gap-2">
         <h2 className="text-lg font-semibold text-white">New Research Job</h2>
-        <label className="flex items-center gap-2 text-xs text-slate-300 cursor-pointer select-none">
-          <input
-            type="checkbox"
-            checked={bulkMode}
-            onChange={(e) => setBulkMode(e.target.checked)}
-            className="accent-indigo-600"
-          />
-          Bulk mode (1000s of leads)
-        </label>
+        {mode === "industry" && (
+          <label className="flex items-center gap-2 text-xs text-slate-300 cursor-pointer select-none">
+            <input
+              type="checkbox"
+              checked={bulkMode}
+              onChange={(e) => setBulkMode(e.target.checked)}
+              className="accent-indigo-600"
+            />
+            Bulk mode (1000s of leads)
+          </label>
+        )}
       </div>
+
+      {/* Research angle */}
+      <div className="flex gap-2 mb-3">
+        {([
+          { id: "industry", label: "🏢 By industry", hint: "find businesses, then score them" },
+          { id: "hiring", label: "🎯 Hiring-first", hint: "start from live receptionist job postings" },
+        ] as const).map((m) => (
+          <button
+            key={m.id}
+            type="button"
+            onClick={() => {
+              setMode(m.id);
+              // The industry box becomes an *optional filter* in hiring mode —
+              // don't let the classic-mode default silently narrow the search.
+              if (m.id === "hiring") setIndustry("");
+              else if (!industry) setIndustry("dental clinics");
+            }}
+            className={`px-3 py-2 rounded-lg text-sm font-medium border transition-colors text-left ${
+              mode === m.id
+                ? "bg-indigo-600 border-indigo-500 text-white"
+                : "bg-white/5 border-white/15 text-slate-300 hover:border-indigo-400"
+            }`}
+          >
+            <span className="block">{m.label}</span>
+            <span className={`block text-[10px] font-normal ${mode === m.id ? "text-indigo-200" : "text-slate-500"}`}>
+              {m.hint}
+            </span>
+          </button>
+        ))}
+      </div>
+
       <p className="text-sm text-slate-400 mb-5">
-        {bulkMode
+        {mode === "hiring"
+          ? "Finds businesses ALREADY hiring this role right now — postings from LinkedIn, Indeed, ZipRecruiter and career pages (via Google Jobs) — then builds the full lead: contacts, decision makers, pitch angle and outreach drafts, with the job posting as evidence."
+          : bulkMode
           ? "Comma-separate multiple industries and cities — every combination is researched in the background."
-          : "Discover and score leads for any industry, in any city worldwide. Type freely — suggestions are optional."}
+          : "Discover and score leads for any industry, in any city worldwide. Type freely — suggestions are optional. Runs above 100 leads continue in the background."}
       </p>
 
       <form onSubmit={handleSubmit} className="space-y-4">
         <div className="grid grid-cols-1 sm:grid-cols-4 gap-4">
-          <div className={bulkMode ? "sm:col-span-2" : ""}>
+          {mode === "hiring" && (
+            <div className="sm:col-span-2">
+              <label className="block text-xs font-medium text-slate-400 mb-1.5 uppercase tracking-wide">
+                Role being hired
+              </label>
+              <input
+                type="text"
+                value={role}
+                onChange={(e) => setRole(e.target.value)}
+                placeholder="e.g. receptionist, front desk..."
+                required
+                className="w-full bg-white/10 border border-white/20 rounded-lg px-3 py-2 text-white text-sm placeholder-slate-500 focus:outline-none focus:border-indigo-500 transition-colors"
+              />
+              <SuggestionChips
+                options={ROLE_SUGGESTIONS.map((r) => ({ label: r, insert: r }))}
+                value={role}
+                onChange={setRole}
+                multi={false}
+              />
+            </div>
+          )}
+
+          <div className={mode === "hiring" ? "sm:col-span-2" : bulkMode ? "sm:col-span-2" : ""}>
             <label className="block text-xs font-medium text-slate-400 mb-1.5 uppercase tracking-wide">
-              {bulkMode ? "Industries (comma-separated)" : "Industry / Niche"}
+              {mode === "hiring"
+                ? "Industry filter (optional)"
+                : bulkMode
+                ? "Industries (comma-separated)"
+                : "Industry / Niche"}
             </label>
             <input
               type="text"
               value={industry}
               onChange={(e) => setIndustry(e.target.value)}
-              placeholder={bulkMode ? "restaurants, med spas, dental clinics" : "e.g. med spas, law firms..."}
-              required
+              placeholder={
+                mode === "hiring"
+                  ? "narrow to a niche, e.g. dental — or leave blank"
+                  : bulkMode
+                  ? "restaurants, med spas, dental clinics"
+                  : "e.g. med spas, law firms..."
+              }
+              required={mode !== "hiring"}
               className="w-full bg-white/10 border border-white/20 rounded-lg px-3 py-2 text-white text-sm placeholder-slate-500 focus:outline-none focus:border-indigo-500 transition-colors"
             />
             <SuggestionChips
               options={INDUSTRY_SUGGESTIONS.map((i) => ({ label: i, insert: i }))}
               value={industry}
               onChange={setIndustry}
-              multi={bulkMode}
+              multi={mode === "industry" && bulkMode}
             />
           </div>
 
@@ -235,7 +332,7 @@ export default function ResearchForm({ onComplete }: Props) {
               options={CITY_SUGGESTIONS.map((c) => ({ label: `${c.flag} ${c.name}`, insert: c.name }))}
               value={city}
               onChange={setCity}
-              multi={bulkMode}
+              multi={mode === "industry" && bulkMode}
             />
           </div>
 
@@ -258,16 +355,21 @@ export default function ResearchForm({ onComplete }: Props) {
 
           <div>
             <label className="block text-xs font-medium text-slate-400 mb-1.5 uppercase tracking-wide">
-              {bulkMode ? "Max per search" : "Max Results"}
+              {mode === "hiring" ? "Max businesses" : bulkMode ? "Max per search" : "Max Results"}
             </label>
             <input
               type="number"
               min={1}
-              max={300}
+              max={2000}
               value={maxResults}
               onChange={(e) => setMaxResults(Number(e.target.value))}
               className="w-full bg-white/10 border border-white/20 rounded-lg px-3 py-2 text-white text-sm focus:outline-none focus:border-indigo-500 transition-colors"
             />
+            {maxResults > 100 && (
+              <p className="text-[10px] text-slate-500 mt-1">
+                Runs in the background — a 2000-lead run can take hours.
+              </p>
+            )}
           </div>
         </div>
 
@@ -282,6 +384,8 @@ export default function ResearchForm({ onComplete }: Props) {
                 <span className="animate-spin text-base">⟳</span>
                 Researching...
               </>
+            ) : mode === "hiring" ? (
+              "🎯 Find hiring businesses"
             ) : (
               "🔍 Run Research"
             )}

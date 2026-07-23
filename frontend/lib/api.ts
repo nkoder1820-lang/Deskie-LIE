@@ -160,6 +160,20 @@ export const api = {
   getBusiness: (id: string) =>
     apiFetch<Business>(`/api/businesses/${id}`),
 
+  // Hiring-first research: start from live job postings (LinkedIn/Indeed/etc.
+  // via Google Jobs) and work back to the business. Always runs in background.
+  runHiringResearch: (req: {
+    city: string;
+    role?: string;
+    industry?: string;
+    country?: string;
+    max_results?: number;
+  }) =>
+    apiFetch<{ status: string; mode: string; poll: string }>(
+      "/api/research/hiring",
+      { method: "POST", body: JSON.stringify(req) }
+    ),
+
   // Bulk research
   runBulkResearch: (req: {
     industries: string[];

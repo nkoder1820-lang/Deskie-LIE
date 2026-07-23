@@ -60,9 +60,21 @@ export default function DashboardPage() {
   const loadBusinesses = useCallback(async () => {
     setLoading(true);
     try {
-      const data = await api.listBusinesses({ sort_by: "final_score", limit: 200 });
-      setBusinesses(data.businesses);
-      setTotal(data.total);
+      // Page through everything (500/page) so client-side filters always see
+      // the full dataset — 2000 leads is 4 requests.
+      const first = await api.listBusinesses({ sort_by: "final_score", limit: 500 });
+      let all = first.businesses;
+      while (all.length < first.total) {
+        const page = await api.listBusinesses({
+          sort_by: "final_score",
+          limit: 500,
+          offset: all.length,
+        });
+        if (!page.businesses.length) break;
+        all = all.concat(page.businesses);
+      }
+      setBusinesses(all);
+      setTotal(first.total);
     } catch (err) {
       console.error(err);
     } finally {
@@ -114,6 +126,14 @@ export default function DashboardPage() {
     setSearch(""); setCityFilter(""); setCountryFilter("");
     setCategoryFilter(""); setPriority(""); setDemoFilter("");
   };
+
+  // Rendering thousands of heavy rows at once janks the page — reveal in
+  // slabs of 200. Reset whenever the filtered set changes.
+  const [visibleCount, setVisibleCount] = useState(200);
+  useEffect(() => {
+    setVisibleCount(200);
+  }, [search, cityFilter, countryFilter, categoryFilter, priority, demoFilter, sortBy]);
+  const visible = displayed.slice(0, visibleCount);
 
   const handleBulkResearchPoc = async () => {
     const withoutPoc = businesses.filter((b) => !b.poc_researched_at).length;
@@ -418,12 +438,23 @@ export default function DashboardPage() {
           </div>
         ) : (
           <>
-            {filtersActive && (
+            {(filtersActive || displayed.length > visibleCount) && (
               <p className="text-xs text-slate-400 -mt-2">
-                Showing {displayed.length} of {businesses.length} leads
+                Showing {Math.min(visibleCount, displayed.length)} of {displayed.length}
+                {filtersActive ? ` filtered (${businesses.length} total)` : " leads"}
               </p>
             )}
-            <LeadTable businesses={displayed} />
+            <LeadTable businesses={visible} />
+            {displayed.length > visibleCount && (
+              <div className="text-center">
+                <button
+                  onClick={() => setVisibleCount((c) => c + 200)}
+                  className="px-4 py-2 text-sm text-indigo-300 hover:text-indigo-200 border border-indigo-500/40 rounded-lg transition-colors"
+                >
+                  Show 200 more ({displayed.length - visibleCount} remaining)
+                </button>
+              </div>
+            )}
           </>
         )}
       </main>

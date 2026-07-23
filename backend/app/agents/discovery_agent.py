@@ -92,6 +92,27 @@ class BusinessDiscoveryAgent:
                 f"affordable {query} in {location}",
                 f"popular {query} {location}",
             ]
+        if max_results > 300:
+            # Phrasing variants exhaust around ~300 uniques; to push toward
+            # 1000-2000 the city itself has to be subdivided — each area query
+            # unlocks its own ~60-result window. The true ceiling is how many
+            # matching businesses actually exist on Google for this niche+city.
+            areas = [
+                "north", "south", "east", "west", "central", "downtown",
+                "uptown", "midtown", "old town", "suburbs", "outskirts",
+                "business district", "market area", "industrial area",
+                "residential area", "near airport", "near railway station",
+                "near university", "near mall", "city center",
+            ]
+            variants += [f"{query} in {area} {location}" for area in areas]
+            variants += [
+                f"{query} {location} open now",
+                f"new {query} in {location}",
+                f"{query} services {location}",
+                f"local {query} {location}",
+                f"famous {query} {location}",
+                f"{query} with good reviews {location}",
+            ]
 
         businesses: list[BusinessDiscovery] = []
         seen_ids: set[str] = set()
