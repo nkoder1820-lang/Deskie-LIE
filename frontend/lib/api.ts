@@ -69,7 +69,7 @@ export interface PocContact {
   guessed_emails: string[];
   phones: string[];
   linkedin_url: string | null;
-  confidence: "verified_on_site" | "public_search" | "inferred";
+  confidence: "verified_on_site" | "verified_apollo" | "public_search" | "inferred";
   source: string;
 }
 

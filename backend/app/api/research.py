@@ -337,13 +337,38 @@ def enrich_contacts(db: Session = Depends(get_db)):
 # searches + 2 LLM calls, and SerpAPI's free tier is ~100 searches/month.
 
 def _research_poc_for_business(b: Business, session: Session) -> dict:
-    poc = PocResearchAgent().run(
-        business_name=b.name,
-        city=b.city,
-        website=b.website,
-        known_decision_makers=b.decision_makers or [],
-        known_business_phone=b.phone,
-    )
+    # Apollo first (verified work emails — best deliverability), SerpAPI
+    # web-search PoC research as the fallback when Apollo is unconfigured or
+    # finds nobody for this business.
+    from app.agents.apollo_agent import ApolloAgent
+
+    poc = None
+    apollo = ApolloAgent()
+    if apollo.configured:
+        a = apollo.run(business_name=b.name, website=b.website, city=b.city)
+        if a["poc_contacts"]:
+            # Keep site-scraped decision makers that Apollo didn't surface —
+            # named people with no contact info still get outreach drafts.
+            apollo_names = {c["name"].lower() for c in a["poc_contacts"]}
+            extras = [
+                {
+                    "name": dm.get("name"), "title": dm.get("title") or "",
+                    "emails": [], "guessed_emails": [], "phones": [],
+                    "linkedin_url": None, "confidence": "verified_on_site",
+                    "source": "Listed on the business's own website",
+                }
+                for dm in (b.decision_makers or [])
+                if dm.get("name") and dm["name"].lower() not in apollo_names
+            ]
+            poc = {"poc_contacts": a["poc_contacts"] + extras[:2], "serpapi_used": False}
+    if poc is None:
+        poc = PocResearchAgent().run(
+            business_name=b.name,
+            city=b.city,
+            website=b.website,
+            known_decision_makers=b.decision_makers or [],
+            known_business_phone=b.phone,
+        )
     b.poc_contacts = poc["poc_contacts"]
     b.poc_researched_at = datetime.utcnow()
     session.commit()

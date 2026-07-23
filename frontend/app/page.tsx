@@ -527,7 +527,7 @@ export default function DashboardPage() {
           <button
             onClick={handleBulkResearchPoc}
             disabled={pocBulkLoading}
-            title="Find decision-maker names, titles and contact details for leads that don't have them yet. Uses SerpAPI quota."
+            title="Find decision makers with VERIFIED work emails via Apollo (SerpAPI web search as fallback) for leads that don't have them yet. Spends Apollo email credits."
             className="text-xs text-slate-400 hover:text-white transition-colors px-3 py-1.5 border border-white/10 rounded-lg hover:border-white/20 flex items-center gap-1 ml-auto disabled:opacity-50"
           >
             {pocBulkLoading ? (

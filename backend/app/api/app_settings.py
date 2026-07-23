@@ -17,6 +17,7 @@ def _current() -> dict:
         ),
         "serpapi_configured": bool(settings.SERPAPI_KEY),
         "adzuna_configured": bool(settings.ADZUNA_APP_ID and settings.ADZUNA_APP_KEY),
+        "apollo_configured": bool(settings.APOLLO_API_KEYS.strip()),
     }
 
 

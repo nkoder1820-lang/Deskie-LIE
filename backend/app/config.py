@@ -22,6 +22,11 @@ class Settings(BaseSettings):
     ADZUNA_APP_ID: str = ""
     ADZUNA_APP_KEY: str = ""
 
+    # Apollo.io — verified decision-maker contacts (primary PoC provider;
+    # SerpAPI PoC research becomes the fallback). Comma-separated keys are
+    # pooled: on a quota/auth error the next key is tried.
+    APOLLO_API_KEYS: str = ""
+
     # Per-lead hiring/ads verification during CLASSIC research costs 2 SerpAPI
     # searches per lead — the #1 quota drain (149 leads ≈ 300 searches). Off by
     # default; scoring still works from website/review/social signals, and
