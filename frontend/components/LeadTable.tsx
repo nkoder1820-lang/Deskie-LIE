@@ -51,6 +51,7 @@ export default function LeadTable({ businesses }: Props) {
           <tr className="border-b border-white/10 text-slate-400 text-xs uppercase tracking-widest">
             <th className="text-left px-4 py-3 font-medium">Business</th>
             <th className="text-left px-4 py-3 font-medium">Found Via</th>
+            <th className="text-left px-4 py-3 font-medium">Fit</th>
             <th className="text-left px-4 py-3 font-medium">Pitch Angle</th>
             <th className="text-left px-4 py-3 font-medium hidden lg:table-cell">Email</th>
             <th className="text-left px-4 py-3 font-medium hidden md:table-cell">Phone</th>
@@ -98,6 +99,9 @@ export default function LeadTable({ businesses }: Props) {
                       🏢 Search
                     </span>
                   )}
+                </td>
+                <td className="px-4 py-3">
+                  <FitCell fit={b.icp_fit} reasons={b.icp_reasons} />
                 </td>
                 <td className="px-4 py-3">
                   {score?.pitch_angle ? (
@@ -307,6 +311,24 @@ function CopyCell({
         {copied ? "✓" : "⎘"}
       </button>
     </div>
+  );
+}
+
+const FIT_META: Record<string, { icon: string; label: string; cls: string }> = {
+  good: { icon: "✅", label: "Good fit", cls: "bg-emerald-500/15 text-emerald-400 border-emerald-500/40" },
+  borderline: { icon: "⚠️", label: "Borderline", cls: "bg-yellow-500/15 text-yellow-400 border-yellow-500/40" },
+  excluded: { icon: "🚫", label: "Poor fit", cls: "bg-red-500/15 text-red-400 border-red-500/40" },
+};
+
+function FitCell({ fit, reasons }: { fit: Business["icp_fit"]; reasons: string[] }) {
+  const m = FIT_META[fit] || FIT_META.good;
+  return (
+    <span
+      className={`px-2 py-0.5 rounded-md text-[11px] font-semibold border whitespace-nowrap cursor-help ${m.cls}`}
+      title={(reasons || []).join("\n")}
+    >
+      {m.icon} {m.label}
+    </span>
   );
 }
 

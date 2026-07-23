@@ -1,6 +1,7 @@
 from datetime import datetime
 
 from app.models.business import Business, LeadScore, LeadReport
+from app.scoring.icp import assess_icp
 from app.database import get_db
 
 from fastapi import APIRouter, Depends, HTTPException, Query
@@ -137,6 +138,16 @@ def set_business_demo(business_id: str, req: SetDemoRequest, db: Session = Depen
 def _serialize_business(b: Business) -> dict:
     score = b.lead_score
     report = b.lead_report
+    # Computed at read time from stored fields (deterministic, no API calls),
+    # so it covers every lead ever stored — no backfill needed.
+    icp = assess_icp(
+        name=b.name,
+        category=b.category,
+        phone=b.phone,
+        phones=b.phones,
+        website=b.website,
+        review_count=b.review_count,
+    )
     return {
         "id": str(b.id),
         "name": b.name,
@@ -168,6 +179,8 @@ def _serialize_business(b: Business) -> dict:
         # How this lead was found: via live job postings ("hiring", the
         # strongest buying signal) or classic industry search ("industry").
         "discovery": "hiring" if (b.source or "").endswith("_jobs") else "industry",
+        "icp_fit": icp["fit"],
+        "icp_reasons": icp["reasons"],
         "demo_slug": b.demo_slug,
         "demo_url": b.demo_url,
         "demo_created_at": b.demo_created_at.isoformat() if b.demo_created_at else None,

@@ -7,13 +7,16 @@ import ResearchForm from "@/components/ResearchForm";
 
 const PRIORITIES = ["", "HOT", "HIGH", "MEDIUM", "LOW"];
 const SORT_OPTIONS = [
-  // Default: leads found via live job postings first (they're actively hiring
-  // RIGHT NOW — the strongest buying signal), then everything by score.
+  // Default: ICP fit first (good > borderline > excluded), hiring-discovered
+  // leads before industry-searched within each band, then Deskie score.
+  { value: "best_fit", label: "Best fit" },
   { value: "hiring_first", label: "Hiring first" },
   { value: "final_score", label: "Deskie Score" },
   { value: "review_count", label: "Reviews" },
   { value: "rating", label: "Rating" },
 ];
+
+const FIT_RANK: Record<string, number> = { good: 2, borderline: 1, excluded: 0 };
 
 // LIE doesn't store a country column — infer it from the phone prefix
 // (E.164 from Google Places), longest prefix first so +971 wins over +91.
@@ -50,12 +53,13 @@ export default function DashboardPage() {
   // from the actual data.
   const [search, setSearch] = useState("");
   const [priority, setPriority] = useState("");
-  const [sortBy, setSortBy] = useState("hiring_first");
+  const [sortBy, setSortBy] = useState("best_fit");
   const [cityFilter, setCityFilter] = useState("");
   const [countryFilter, setCountryFilter] = useState("");
   const [categoryFilter, setCategoryFilter] = useState("");
   const [demoFilter, setDemoFilter] = useState("");
   const [sourceFilter, setSourceFilter] = useState("");
+  const [icpFilter, setIcpFilter] = useState("");
 
   // Bulk PoC research
   const [pocBulkLoading, setPocBulkLoading] = useState(false);
@@ -117,27 +121,37 @@ export default function DashboardPage() {
       if (demoFilter === "yes" && !b.demo_url) return false;
       if (demoFilter === "no" && b.demo_url) return false;
       if (sourceFilter && b.discovery !== sourceFilter) return false;
+      if (icpFilter && b.icp_fit !== icpFilter) return false;
       return true;
     });
     const byScore = (a: Business, b: Business) =>
       (b.score?.final_score ?? -1) - (a.score?.final_score ?? -1);
+    const byHiring = (a: Business, b: Business) =>
+      (b.discovery === "hiring" ? 1 : 0) - (a.discovery === "hiring" ? 1 : 0);
     return filtered.sort((a, b) => {
+      if (sortBy === "best_fit") {
+        const fitDiff = (FIT_RANK[b.icp_fit] ?? 2) - (FIT_RANK[a.icp_fit] ?? 2);
+        if (fitDiff !== 0) return fitDiff;
+        const h = byHiring(a, b);
+        if (h !== 0) return h;
+        return byScore(a, b);
+      }
       if (sortBy === "hiring_first") {
-        const ah = a.discovery === "hiring" ? 1 : 0;
-        const bh = b.discovery === "hiring" ? 1 : 0;
-        if (ah !== bh) return bh - ah;
+        const h = byHiring(a, b);
+        if (h !== 0) return h;
         return byScore(a, b);
       }
       if (sortBy === "rating") return (b.rating ?? -1) - (a.rating ?? -1);
       if (sortBy === "review_count") return (b.review_count ?? -1) - (a.review_count ?? -1);
       return byScore(a, b);
     });
-  }, [businesses, search, cityFilter, countryFilter, categoryFilter, priority, demoFilter, sourceFilter, sortBy]);
+  }, [businesses, search, cityFilter, countryFilter, categoryFilter, priority, demoFilter, sourceFilter, icpFilter, sortBy]);
 
-  const filtersActive = !!(search || cityFilter || countryFilter || categoryFilter || priority || demoFilter || sourceFilter);
+  const filtersActive = !!(search || cityFilter || countryFilter || categoryFilter || priority || demoFilter || sourceFilter || icpFilter);
   const clearFilters = () => {
     setSearch(""); setCityFilter(""); setCountryFilter("");
-    setCategoryFilter(""); setPriority(""); setDemoFilter(""); setSourceFilter("");
+    setCategoryFilter(""); setPriority(""); setDemoFilter("");
+    setSourceFilter(""); setIcpFilter("");
   };
 
   // Rendering thousands of heavy rows at once janks the page — reveal in
@@ -145,7 +159,7 @@ export default function DashboardPage() {
   const [visibleCount, setVisibleCount] = useState(200);
   useEffect(() => {
     setVisibleCount(200);
-  }, [search, cityFilter, countryFilter, categoryFilter, priority, demoFilter, sourceFilter, sortBy]);
+  }, [search, cityFilter, countryFilter, categoryFilter, priority, demoFilter, sourceFilter, icpFilter, sortBy]);
   const visible = displayed.slice(0, visibleCount);
 
   // ── Background job transparency ─────────────────────────────────────────
@@ -461,6 +475,17 @@ export default function DashboardPage() {
             <option value="" className="bg-slate-900">Found Via: Any</option>
             <option value="hiring" className="bg-slate-900">🎯 Hiring-first</option>
             <option value="industry" className="bg-slate-900">🏢 Industry search</option>
+          </select>
+
+          <select
+            value={icpFilter}
+            onChange={(e) => setIcpFilter(e.target.value)}
+            className="bg-white/10 border border-white/20 rounded-lg px-3 py-1.5 text-sm text-white focus:outline-none focus:border-indigo-500"
+          >
+            <option value="" className="bg-slate-900">Fit: Any</option>
+            <option value="good" className="bg-slate-900">✅ Good fit</option>
+            <option value="borderline" className="bg-slate-900">⚠️ Borderline</option>
+            <option value="excluded" className="bg-slate-900">🚫 Poor fit</option>
           </select>
 
           <select

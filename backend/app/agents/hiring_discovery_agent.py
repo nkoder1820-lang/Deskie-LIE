@@ -27,6 +27,7 @@ import httpx
 
 from app.config import settings
 from app.agents.discovery_agent import BusinessDiscoveryAgent, BusinessDiscovery
+from app.scoring.icp import is_staffing_agency
 
 logger = logging.getLogger(__name__)
 
@@ -112,6 +113,12 @@ class HiringDiscoveryAgent:
         for company, jobs in by_company.items():
             if len(results) >= max_results:
                 break
+            # ICP gate: staffing/recruiting agencies post most receptionist
+            # ads, but the role isn't at their own front desk — pure noise.
+            # Hard-skip before spending a Places call on them.
+            if is_staffing_agency(company):
+                logger.info(f"[HiringDiscovery] '{company}' looks like a staffing agency — gated out.")
+                continue
             biz = self._resolve_company(company, city, industry, country, source)
             if not biz:
                 logger.info(f"[HiringDiscovery] Could not resolve '{company}' via Places — skipped.")

@@ -28,6 +28,10 @@ export interface Business {
   /** "hiring" = found via live job postings (strongest buying signal);
    *  "industry" = classic business search. */
   discovery: "hiring" | "industry";
+  /** ICP fit: good = single-location SMB profile; borderline = signals of a
+   *  larger operation; excluded = clear non-ICP (chain/national/agency). */
+  icp_fit: "good" | "borderline" | "excluded";
+  icp_reasons: string[];
   demo_slug: string | null;
   demo_url: string | null;
   demo_created_at: string | null;
