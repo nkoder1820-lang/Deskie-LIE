@@ -110,8 +110,56 @@ def _rating_line(business) -> str:
     return ""
 
 
+# Short-form lead-ins for DMs (Instagram / LinkedIn) — same pitch, DM length.
+_DM_LEADS = {
+    "hiring":     "Saw {biz} is hiring a front-desk receptionist — before you commit to a salary, hear the AI receptionist we already built for {biz}",
+    "missed":     "Missed calls at {biz} usually mean customers booking elsewhere — so we built {biz}'s AI receptionist already",
+    "booking":    "{biz} runs on phone bookings, so we built you an AI receptionist that answers and books 24/7",
+    "afterhours": "Who answers {biz} after closing? We built an AI receptionist for {biz} that takes bookings while you sleep",
+    "ads":        "You pay to make {biz}'s phone ring — we built the AI receptionist that answers every one of those calls",
+    "general":    "We built an AI receptionist for {biz} — answers 24/7, books appointments, logs every lead",
+}
+
+
+def _resolve_recipient(business) -> tuple[str | None, str | None]:
+    """Delivery priority: decision-maker email > business email from the
+    website > pattern-guessed email (unverified, last resort)."""
+    for c in business.poc_contacts or []:
+        if c.get("emails"):
+            return c["emails"][0], "decision_maker"
+    if business.email:
+        return business.email, "business"
+    for c in business.poc_contacts or []:
+        if c.get("guessed_emails"):
+            return c["guessed_emails"][0], "guessed"
+    return None, None
+
+
+def _dm_channels(business) -> list[dict]:
+    """Places to deliver the DM draft when email is missing/weak, best first:
+    a decision maker's own LinkedIn, then the business's Instagram /
+    LinkedIn / Facebook Messenger."""
+    channels: list[dict] = []
+    for c in business.poc_contacts or []:
+        if c.get("linkedin_url"):
+            who = (c.get("name") or "profile").split()[0]
+            channels.append({"kind": "linkedin_dm", "label": f"LinkedIn DM · {who}", "url": c["linkedin_url"]})
+    socials = business.social_links or {}
+    if socials.get("instagram"):
+        channels.append({"kind": "instagram", "label": "Instagram DM", "url": socials["instagram"]})
+    if socials.get("linkedin"):
+        channels.append({"kind": "linkedin_company", "label": "LinkedIn (company)", "url": socials["linkedin"]})
+    fb = socials.get("facebook") or ""
+    if fb:
+        slug = re.sub(r"^https?://(www\.)?(facebook|fb)\.com/", "", fb, flags=re.I).split("/")[0].split("?")[0]
+        if slug and not slug.isdigit() and slug.lower() != "people":
+            channels.append({"kind": "messenger", "label": "FB Messenger", "url": f"https://m.me/{slug}"})
+    return channels
+
+
 def compose_outreach_email(business, score, enricher_result: dict | None = None) -> dict:
-    """Returns {subject, html, text, to, template, demo_ready, demo_is_local}."""
+    """Returns {subject, html, text, to, to_kind, dm_text, channels,
+    template, demo_ready, demo_is_local}."""
     biz = business.name
     angle = _angle_key(
         score.pitch_angle if score else None,
@@ -235,18 +283,26 @@ def compose_outreach_email(business, score, enricher_result: dict | None = None)
     ]
     text_body = "\n".join(text_lines)
 
-    to = business.email or None
-    if not to:
-        for c in business.poc_contacts or []:
-            if c.get("emails"):
-                to = c["emails"][0]
-                break
+    to, to_kind = _resolve_recipient(business)
+
+    # Short-form DM (Instagram / LinkedIn) — same pitch, same voice, DM length.
+    dm_lead = _DM_LEADS[angle].format(biz=biz)
+    dm_greet = f"Hi {first_name}!" if first_name != "there" else "Hi!"
+    dm_text = (
+        f"{dm_greet} Niket here, from Deskie. {dm_lead} — your hours, services "
+        f"and reputation already configured. Hear {agent} live"
+        + (f": {demo_url}" if demo_ready else " (link coming)")
+        + " — 60 seconds, no signup. If she's not better than voicemail, ignore me :)"
+    )
 
     return {
         "subject": subject,
         "html": html_body,
         "text": text_body,
         "to": to,
+        "to_kind": to_kind,
+        "dm_text": dm_text,
+        "channels": _dm_channels(business),
         "template": angle,
         "demo_ready": demo_ready,
         "demo_is_local": demo_is_local,

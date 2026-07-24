@@ -227,6 +227,9 @@ export const api = {
       html: string;
       text: string;
       to: string | null;
+      to_kind: "decision_maker" | "business" | "guessed" | null;
+      dm_text: string;
+      channels: { kind: string; label: string; url: string }[];
       template: string;
       demo_ready: boolean;
       demo_is_local: boolean;

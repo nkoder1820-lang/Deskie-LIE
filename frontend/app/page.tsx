@@ -8,9 +8,18 @@ type ComposedEmail = {
   html: string;
   text: string;
   to: string | null;
+  to_kind: "decision_maker" | "business" | "guessed" | null;
+  dm_text: string;
+  channels: { kind: string; label: string; url: string }[];
   template: string;
   demo_ready: boolean;
   demo_is_local: boolean;
+};
+
+const TO_KIND_LABEL: Record<string, string> = {
+  decision_maker: "decision maker ✓",
+  business: "business email (website)",
+  guessed: "guessed — unverified ⚠️",
 };
 import LeadTable from "@/components/LeadTable";
 import ResearchForm from "@/components/ResearchForm";
@@ -626,7 +635,10 @@ export default function DashboardPage() {
                 </p>
                 <p className="text-xs text-slate-400 mt-1 truncate">
                   <span className="text-slate-500">To:</span>{" "}
-                  {emailPreview.data.to || <span className="text-red-400">no email on this lead</span>}
+                  {emailPreview.data.to || <span className="text-red-400">no email — use a DM channel below</span>}
+                  {emailPreview.data.to_kind && (
+                    <span className="text-slate-500"> ({TO_KIND_LABEL[emailPreview.data.to_kind]})</span>
+                  )}
                   <span className="text-slate-600"> · template: {emailPreview.data.template}</span>
                   <span className="text-slate-600"> · from: Niket from Deskie &lt;deskie70@gmail.com&gt;</span>
                 </p>
@@ -657,6 +669,39 @@ export default function DashboardPage() {
                 className="w-full h-[520px] border-0"
               />
             </div>
+
+            {(emailPreview.data.channels.length > 0 || !emailPreview.data.to) && (
+              <div className="px-5 py-3 border-t border-white/10 bg-white/[0.03]">
+                <p className="text-[11px] uppercase tracking-wide text-slate-500 mb-2">
+                  {emailPreview.data.to
+                    ? "Also reachable by DM — same pitch, short form"
+                    : "No email found — DM them instead (same pitch, short form)"}
+                </p>
+                <div className="flex flex-wrap items-center gap-2">
+                  {emailPreview.data.channels.map((ch) => (
+                    <a
+                      key={ch.kind + ch.url}
+                      href={ch.url}
+                      target="_blank"
+                      rel="noopener noreferrer"
+                      className="px-2.5 py-1 text-xs rounded-full border border-white/15 text-slate-300 hover:border-indigo-400 hover:text-white transition-colors"
+                    >
+                      {ch.label} ↗
+                    </a>
+                  ))}
+                  {emailPreview.data.channels.length === 0 && (
+                    <span className="text-xs text-slate-500">No social profiles found for this lead either.</span>
+                  )}
+                  <button
+                    onClick={() => copyToClipboard("dm", emailPreview.data.dm_text)}
+                    className="px-2.5 py-1 text-xs rounded-full bg-indigo-600/80 hover:bg-indigo-500 text-white font-medium transition-colors"
+                  >
+                    {copied === "dm" ? "✓ Copied" : "Copy DM draft"}
+                  </button>
+                </div>
+                <p className="text-xs text-slate-400 mt-2 leading-relaxed">{emailPreview.data.dm_text}</p>
+              </div>
+            )}
 
             <div className="px-5 py-3 border-t border-white/10 flex flex-wrap gap-2">
               <button
