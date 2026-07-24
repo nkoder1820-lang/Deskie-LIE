@@ -677,16 +677,20 @@ export default function DashboardPage() {
               >
                 {copied === "text" ? "✓ Copied" : "Copy plain text"}
               </button>
-              {emailPreview.data.to && (
-                <a
-                  href={gmailComposeLink(emailPreview.data.to, emailPreview.data.subject, emailPreview.data.text)}
-                  target="_blank"
-                  rel="noopener noreferrer"
-                  className="ml-auto px-3 py-1.5 text-xs rounded-lg bg-indigo-600 hover:bg-indigo-500 text-white font-medium transition-colors"
-                >
-                  Open Gmail draft (plain text) →
-                </a>
-              )}
+              <a
+                href={gmailComposeLink(
+                  emailPreview.data.to || "",
+                  emailPreview.data.subject,
+                  emailPreview.data.text,
+                )}
+                target="_blank"
+                rel="noopener noreferrer"
+                className="ml-auto px-3 py-1.5 text-xs rounded-lg bg-indigo-600 hover:bg-indigo-500 text-white font-medium transition-colors"
+              >
+                {emailPreview.data.to
+                  ? "Open Gmail draft (plain text) →"
+                  : "Open Gmail draft (fill recipient) →"}
+              </a>
             </div>
           </div>
         </div>
