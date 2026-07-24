@@ -220,6 +220,18 @@ export const api = {
       adzuna_configured: boolean;
     }>("/api/settings", { method: "PATCH", body: JSON.stringify(patch) }),
 
+  // Compose the professional HTML outreach email for a lead (preview/copy).
+  composeEmail: (businessId: string) =>
+    apiFetch<{
+      subject: string;
+      html: string;
+      text: string;
+      to: string | null;
+      template: string;
+      demo_ready: boolean;
+      demo_is_local: boolean;
+    }>(`/api/outreach/compose/${businessId}`),
+
   // Outreach sending
   outreachConfig: () =>
     apiFetch<{ email_sending_enabled: boolean; from_email: string | null }>(

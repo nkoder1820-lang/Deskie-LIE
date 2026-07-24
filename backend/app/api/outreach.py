@@ -18,10 +18,42 @@ from sqlalchemy.orm import Session, joinedload
 
 from app.config import settings
 from app.database import get_db
-from app.models.business import Business
+from app.models.business import Business, ResearchResult
+from app.outreach_templates import compose_outreach_email
 
 logger = logging.getLogger(__name__)
 router = APIRouter(prefix="/api/outreach", tags=["Outreach"])
+
+
+@router.get("/compose/{business_id}")
+def compose_email(business_id: str, db: Session = Depends(get_db)):
+    """Builds the professional HTML outreach email for a lead — template
+    chosen by pitch angle, evidence cited with its source link, CTA pointing
+    at the lead's /demo/<slug>. Deterministic: preview == what would send."""
+    try:
+        biz_uuid = PyUUID(business_id)
+    except ValueError:
+        raise HTTPException(status_code=404, detail="Business not found")
+
+    business = (
+        db.query(Business)
+        .options(joinedload(Business.lead_score))
+        .filter(Business.id == biz_uuid)
+        .first()
+    )
+    if not business:
+        raise HTTPException(status_code=404, detail="Business not found")
+
+    enricher = (
+        db.query(ResearchResult)
+        .filter_by(business_id=biz_uuid, agent_name="lead_enricher_agent")
+        .first()
+    )
+    return compose_outreach_email(
+        business,
+        business.lead_score,
+        enricher.result_json if enricher else None,
+    )
 
 
 class SendEmailRequest(BaseModel):

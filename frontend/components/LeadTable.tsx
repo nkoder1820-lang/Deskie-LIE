@@ -6,6 +6,7 @@ import { useState, useCallback, type MouseEvent } from "react";
 
 interface Props {
   businesses: Business[];
+  onPreviewEmail?: (b: Business) => void;
 }
 
 const PRIORITY_STYLES: Record<string, string> = {
@@ -33,7 +34,7 @@ const SCORE_COLOR = (score: number | null) => {
   return "text-slate-400";
 };
 
-export default function LeadTable({ businesses }: Props) {
+export default function LeadTable({ businesses, onPreviewEmail }: Props) {
   if (businesses.length === 0) {
     return (
       <div className="text-center py-20 text-slate-500">
@@ -167,7 +168,16 @@ export default function LeadTable({ businesses }: Props) {
                 <td className="px-4 py-3">
                   <DemoCell url={b.demo_url} />
                 </td>
-                <td className="px-4 py-3 text-right">
+                <td className="px-4 py-3 text-right whitespace-nowrap">
+                  {onPreviewEmail && (
+                    <button
+                      onClick={() => onPreviewEmail(b)}
+                      title="Preview the outreach email for this lead"
+                      className="mr-2 text-sm hover:scale-125 transition-transform"
+                    >
+                      ✉️
+                    </button>
+                  )}
                   <Link
                     href={`/leads/${b.id}`}
                     className="opacity-0 group-hover:opacity-100 transition-opacity text-indigo-400 hover:text-indigo-300 text-xs font-medium"

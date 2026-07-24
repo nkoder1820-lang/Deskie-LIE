@@ -1,7 +1,17 @@
 "use client";
 
 import { useState, useEffect, useCallback, useMemo } from "react";
-import { api, Business, outreachLinks, pocOutreachLinks } from "@/lib/api";
+import { api, Business, outreachLinks, pocOutreachLinks, gmailComposeLink } from "@/lib/api";
+
+type ComposedEmail = {
+  subject: string;
+  html: string;
+  text: string;
+  to: string | null;
+  template: string;
+  demo_ready: boolean;
+  demo_is_local: boolean;
+};
 import LeadTable from "@/components/LeadTable";
 import ResearchForm from "@/components/ResearchForm";
 
@@ -191,6 +201,25 @@ export default function DashboardPage() {
     if (job?.status === "running" || job?.status === "completed") loadBusinesses();
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [job?.status, job?.leads_found]);
+
+  // ── Outreach email preview ──────────────────────────────────────────────
+  const [emailPreview, setEmailPreview] = useState<{ b: Business; data: ComposedEmail } | null>(null);
+  const [copied, setCopied] = useState<string | null>(null);
+  const previewEmail = async (b: Business) => {
+    try {
+      const data = await api.composeEmail(b.id);
+      setEmailPreview({ b, data });
+      setCopied(null);
+    } catch (e) {
+      alert(`Couldn't compose email: ${e instanceof Error ? e.message : e}`);
+    }
+  };
+  const copyToClipboard = (what: string, value: string) => {
+    navigator.clipboard.writeText(value).then(() => {
+      setCopied(what);
+      setTimeout(() => setCopied(null), 1500);
+    });
+  };
 
   const handleBulkResearchPoc = async () => {
     const withoutPoc = businesses.filter((b) => !b.poc_researched_at).length;
@@ -565,7 +594,7 @@ export default function DashboardPage() {
                 {filtersActive ? ` filtered (${businesses.length} total)` : " leads"}
               </p>
             )}
-            <LeadTable businesses={visible} />
+            <LeadTable businesses={visible} onPreviewEmail={previewEmail} />
             {displayed.length > visibleCount && (
               <div className="text-center">
                 <button
@@ -579,6 +608,89 @@ export default function DashboardPage() {
           </>
         )}
       </main>
+
+      {/* Outreach email preview modal */}
+      {emailPreview && (
+        <div
+          className="fixed inset-0 z-50 bg-black/60 backdrop-blur-sm flex items-center justify-center p-4"
+          onClick={() => setEmailPreview(null)}
+        >
+          <div
+            className="bg-[#0f1526] border border-white/15 rounded-2xl w-full max-w-3xl max-h-[92vh] flex flex-col overflow-hidden shadow-2xl"
+            onClick={(e) => e.stopPropagation()}
+          >
+            <div className="px-5 py-4 border-b border-white/10 flex items-start justify-between gap-3">
+              <div className="min-w-0">
+                <p className="text-sm font-semibold text-white truncate">
+                  ✉️ Outreach email — {emailPreview.b.name}
+                </p>
+                <p className="text-xs text-slate-400 mt-1 truncate">
+                  <span className="text-slate-500">To:</span>{" "}
+                  {emailPreview.data.to || <span className="text-red-400">no email on this lead</span>}
+                  <span className="text-slate-600"> · template: {emailPreview.data.template}</span>
+                  <span className="text-slate-600"> · from: Niket from Deskie &lt;deskie70@gmail.com&gt;</span>
+                </p>
+                <p className="text-xs text-indigo-300 mt-1 truncate">
+                  <span className="text-slate-500">Subject:</span> {emailPreview.data.subject}
+                </p>
+              </div>
+              <button
+                onClick={() => setEmailPreview(null)}
+                className="text-slate-400 hover:text-white shrink-0"
+              >
+                ✕
+              </button>
+            </div>
+
+            {(!emailPreview.data.demo_ready || emailPreview.data.demo_is_local) && (
+              <div className="px-5 py-2.5 bg-yellow-500/10 border-b border-yellow-500/30 text-xs text-yellow-300">
+                {!emailPreview.data.demo_ready
+                  ? "⚠️ No demo created for this lead yet — the CTA button has no link. Create the demo in the marketing dashboard first."
+                  : "⚠️ The demo link points at localhost — recipients can't open it. Don't send until demos are deployed publicly."}
+              </div>
+            )}
+
+            <div className="flex-1 overflow-auto bg-[#EEF0F5]">
+              <iframe
+                title="email preview"
+                srcDoc={emailPreview.data.html}
+                className="w-full h-[520px] border-0"
+              />
+            </div>
+
+            <div className="px-5 py-3 border-t border-white/10 flex flex-wrap gap-2">
+              <button
+                onClick={() => copyToClipboard("subject", emailPreview.data.subject)}
+                className="px-3 py-1.5 text-xs rounded-lg border border-white/15 text-slate-300 hover:border-indigo-400 hover:text-white transition-colors"
+              >
+                {copied === "subject" ? "✓ Copied" : "Copy subject"}
+              </button>
+              <button
+                onClick={() => copyToClipboard("html", emailPreview.data.html)}
+                className="px-3 py-1.5 text-xs rounded-lg border border-white/15 text-slate-300 hover:border-indigo-400 hover:text-white transition-colors"
+              >
+                {copied === "html" ? "✓ Copied" : "Copy HTML"}
+              </button>
+              <button
+                onClick={() => copyToClipboard("text", emailPreview.data.text)}
+                className="px-3 py-1.5 text-xs rounded-lg border border-white/15 text-slate-300 hover:border-indigo-400 hover:text-white transition-colors"
+              >
+                {copied === "text" ? "✓ Copied" : "Copy plain text"}
+              </button>
+              {emailPreview.data.to && (
+                <a
+                  href={gmailComposeLink(emailPreview.data.to, emailPreview.data.subject, emailPreview.data.text)}
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  className="ml-auto px-3 py-1.5 text-xs rounded-lg bg-indigo-600 hover:bg-indigo-500 text-white font-medium transition-colors"
+                >
+                  Open Gmail draft (plain text) →
+                </a>
+              )}
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 }
