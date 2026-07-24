@@ -81,14 +81,19 @@ class HiringDiscoveryAgent:
         location = f"{city}, {country}" if country else city
         query = f"{role} {industry}".strip() if industry else role
 
-        # Provider 1: Adzuna (free official API). Provider 2: SerpAPI fallback.
+        # Free providers run TOGETHER and their postings merge (deduped by
+        # company below) — different boards surface different businesses.
+        # SerpAPI google_jobs stays as the last-resort fallback only.
         postings: list[dict] = []
-        source = "adzuna_jobs"
         if settings.ADZUNA_APP_ID and settings.ADZUNA_APP_KEY:
-            postings = self._search_adzuna(query, city, country, max_results)
-            logger.info(f"[HiringDiscovery] Adzuna: {len(postings)} postings for '{query}' in {location}")
+            found = self._search_adzuna(query, city, country, max_results)
+            logger.info(f"[HiringDiscovery] Adzuna: {len(found)} postings for '{query}' in {location}")
+            postings += found
+        if settings.JOOBLE_API_KEYS.strip():
+            found = self._search_jooble(query, location, max_results)
+            logger.info(f"[HiringDiscovery] Jooble: {len(found)} postings for '{query}' in {location}")
+            postings += found
         if not postings and settings.SERPAPI_KEY:
-            source = "google_jobs"
             max_pages = max(1, min(20, (max_results + 9) // 10 + 1))
             postings = self._search_serpapi_jobs(query, location, max_pages)
             logger.info(f"[HiringDiscovery] google_jobs: {len(postings)} postings for '{query}' in {location}")
@@ -101,24 +106,44 @@ class HiringDiscoveryAgent:
             logger.warning("[HiringDiscovery] No postings found (and no provider errors).")
             return []
 
-        # A company may run several postings — group them so each business
-        # becomes ONE lead carrying all its hiring evidence.
-        by_company: dict[str, list[dict]] = {}
+        # Interleave providers round-robin so both contribute companies even
+        # when max_results is small (otherwise whichever provider's postings
+        # sit first in the list monopolizes the cap).
+        by_provider: dict[str, list[dict]] = {}
         for p in postings:
+            by_provider.setdefault(p.get("provider", "?"), []).append(p)
+        interleaved: list[dict] = []
+        lanes = list(by_provider.values())
+        i = 0
+        while any(lanes):
+            for lane in lanes:
+                if i < len(lane):
+                    interleaved.append(lane[i])
+            i += 1
+            if all(i >= len(lane) for lane in lanes):
+                break
+
+        # A company may run several postings (and appear on several boards) —
+        # group case-insensitively so each business becomes ONE lead carrying
+        # all its hiring evidence.
+        by_company: dict[str, list[dict]] = {}
+        for p in interleaved:
             name = (p.get("company_name") or "").strip()
             if name:
-                by_company.setdefault(name, []).append(p)
+                by_company.setdefault(name.lower(), []).append(p)
 
         results: list[tuple[BusinessDiscovery, dict]] = []
-        for company, jobs in by_company.items():
+        for jobs in by_company.values():
             if len(results) >= max_results:
                 break
+            company = jobs[0]["company_name"]
             # ICP gate: staffing/recruiting agencies post most receptionist
             # ads, but the role isn't at their own front desk — pure noise.
             # Hard-skip before spending a Places call on them.
             if is_staffing_agency(company):
                 logger.info(f"[HiringDiscovery] '{company}' looks like a staffing agency — gated out.")
                 continue
+            source = f"{jobs[0].get('provider', 'google')}_jobs"
             biz = self._resolve_company(company, city, industry, country, source)
             if not biz:
                 logger.info(f"[HiringDiscovery] Could not resolve '{company}' via Places — skipped.")
@@ -168,8 +193,52 @@ class HiringDiscoveryAgent:
                     "title": re.sub(r"<[^>]+>", "", j.get("title") or "Job posting").strip(),
                     "via": "Adzuna",
                     "url": j.get("redirect_url"),
+                    "provider": "adzuna",
                 })
             if len(results) < 50:
+                break
+            page += 1
+        return postings
+
+    # ── Jooble search (free API, runs alongside Adzuna) ─────────────────────
+    def _search_jooble(self, query: str, location: str, max_results: int) -> list[dict]:
+        keys = [k.strip() for k in (settings.JOOBLE_API_KEYS or "").split(",") if k.strip()]
+        postings: list[dict] = []
+        if not keys:
+            return postings
+        want = min(max(max_results * 3, 60), 250)
+        page = 1
+        while len(postings) < want and page <= 8:
+            data = None
+            for i, key in enumerate(keys):
+                try:
+                    r = self.client.post(
+                        f"https://jooble.org/api/{key}",
+                        json={"keywords": query, "location": location, "page": str(page)},
+                    )
+                    if r.status_code in (401, 403, 429):
+                        logger.info(f"[HiringDiscovery] Jooble key #{i}: HTTP {r.status_code} — trying next")
+                        self._last_search_error = f"Jooble: HTTP {r.status_code}"
+                        continue
+                    r.raise_for_status()
+                    data = r.json()
+                    break
+                except Exception as e:  # noqa: BLE001
+                    logger.error(f"[HiringDiscovery] Jooble search failed: {e}")
+                    self._last_search_error = f"Jooble: {str(e)[:180]}"
+            if data is None:
+                break
+            jobs = data.get("jobs") or []
+            for j in jobs:
+                postings.append({
+                    "company_name": (j.get("company") or "").strip(),
+                    "title": re.sub(r"<[^>]+>", "", j.get("title") or "Job posting").strip(),
+                    # Jooble tells us the original board (jazzhr, breezy, LinkedIn...)
+                    "via": (j.get("source") or "Jooble").strip(),
+                    "url": j.get("link"),
+                    "provider": "jooble",
+                })
+            if not jobs:
                 break
             page += 1
         return postings
@@ -208,6 +277,7 @@ class HiringDiscoveryAgent:
                     "title": (j.get("title") or "Job posting").strip(),
                     "via": (j.get("via") or "").removeprefix("via ").strip() or "Google Jobs",
                     "url": url,
+                    "provider": "google",
                 })
             token = (data.get("serpapi_pagination") or {}).get("next_page_token")
             if not jobs or not token:

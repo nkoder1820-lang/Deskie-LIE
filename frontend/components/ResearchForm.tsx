@@ -281,7 +281,7 @@ export default function ResearchForm({ onComplete }: Props) {
 
       <p className="text-sm text-slate-400 mb-3">
         {mode === "hiring"
-          ? "Finds businesses ALREADY hiring this role right now — postings from LinkedIn, Indeed, ZipRecruiter and career pages (via Google Jobs) — then builds the full lead: contacts, decision makers, pitch angle and outreach drafts, with the job posting as evidence."
+          ? "Finds businesses ALREADY hiring this role right now — live postings aggregated from LinkedIn, Indeed, ZipRecruiter, career pages and more (Adzuna + Jooble, both free) — then builds the full lead: contacts, decision makers, pitch angle and outreach drafts, with the job posting as evidence."
           : bulkMode
           ? "Comma-separate multiple industries and cities — every combination is researched in the background."
           : "Discover and score leads for any industry, in any city worldwide. Type freely — suggestions are optional. Runs above 100 leads continue in the background."}

@@ -22,6 +22,11 @@ class Settings(BaseSettings):
     ADZUNA_APP_ID: str = ""
     ADZUNA_APP_KEY: str = ""
 
+    # Jooble (free jobs API, key granted at jooble.org/api/about) — runs
+    # ALONGSIDE Adzuna in hiring-first discovery; results are merged and
+    # deduped by company. Comma-separated keys rotate on errors.
+    JOOBLE_API_KEYS: str = ""
+
     # Apollo.io — verified decision-maker contacts (primary PoC provider;
     # SerpAPI PoC research becomes the fallback). Comma-separated keys are
     # pooled: on a quota/auth error the next key is tried.

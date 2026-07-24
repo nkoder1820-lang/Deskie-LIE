@@ -30,6 +30,7 @@ _STAFFING_RE = re.compile(
         r"kelly services", r"\baerotek\b", r"insight global", r"express employment",
         r"\bpridestaff\b", r"\bspherion\b", r"\bteksystems\b", r"\bstaffmark\b",
         r"\bkforce\b", r"michael page", r"\bhays recruitment\b", r"\bworkforce solutions\b",
+        r"professional resources", r"staffing solutions", r"\btemp(?:orary)? (?:agency|services)\b",
     ]),
     re.IGNORECASE,
 )
