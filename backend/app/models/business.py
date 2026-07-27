@@ -2,7 +2,7 @@ import uuid
 from datetime import datetime
 from sqlalchemy import (
     Column, String, Text, Numeric, Integer, DateTime,
-    ForeignKey, JSON
+    ForeignKey, JSON, Boolean
 )
 from sqlalchemy.dialects.postgresql import UUID
 from sqlalchemy.orm import relationship
@@ -39,6 +39,10 @@ class Business(Base):
     demo_slug = Column(String(120))                 # deskie-agent /demo/<slug> for this lead, once created
     demo_url = Column(Text)                         # absolute shareable link, e.g. https://app.deskie.com/demo/<slug>
     demo_created_at = Column(DateTime)               # when the demo agent was created
+    # Operator's own outreach tracking — set from the dashboard, never by an agent.
+    contacted = Column(Boolean, default=False)       # "I've reached out to this one"
+    notes = Column(Text)                             # free-text: called, mailed, replied...
+    notes_updated_at = Column(DateTime)
     created_at = Column(DateTime, default=datetime.utcnow)
     updated_at = Column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
 

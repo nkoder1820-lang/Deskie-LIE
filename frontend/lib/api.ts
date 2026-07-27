@@ -36,6 +36,10 @@ export interface Business {
   /** Single lead-quality figure shown in the table. The pain/value/digital/
    *  timing sub-scores still exist on `score` but are internal now. */
   grade: { score: number; label: "A" | "B" | "C" | "D"; tone: string } | null;
+  /** Operator's own tracking, editable from the table. */
+  contacted: boolean;
+  notes: string;
+  notes_updated_at: string | null;
   demo_slug: string | null;
   demo_url: string | null;
   demo_created_at: string | null;
@@ -170,6 +174,13 @@ export const api = {
 
   getBusiness: (id: string) =>
     apiFetch<Business>(`/api/businesses/${id}`),
+
+  // Operator tracking: contacted checkbox + free-text notes.
+  saveNotes: (businessId: string, patch: { contacted?: boolean; notes?: string }) =>
+    apiFetch<{ id: string; contacted: boolean; notes: string; notes_updated_at: string }>(
+      `/api/businesses/${businessId}/notes`,
+      { method: "PATCH", body: JSON.stringify(patch) }
+    ),
 
   // Hiring-first research: start from live job postings (LinkedIn/Indeed/etc.
   // via Google Jobs) and work back to the business. Always runs in background.

@@ -99,6 +99,37 @@ def get_business(business_id: str, db: Session = Depends(get_db)):
     return result
 
 
+class NotesRequest(BaseModel):
+    contacted: Optional[bool] = None
+    notes: Optional[str] = None
+
+
+@router.patch("/{business_id}/notes")
+def set_business_notes(business_id: str, req: NotesRequest, db: Session = Depends(get_db)):
+    """The operator's own tracking — whether they've reached out, plus free-text
+    notes (called Tue, mailed the owner, asked to call back Friday...)."""
+    from uuid import UUID as PyUUID
+    try:
+        biz_uuid = PyUUID(business_id)
+    except ValueError:
+        raise HTTPException(status_code=404, detail="Business not found")
+    business = db.query(Business).filter(Business.id == biz_uuid).first()
+    if not business:
+        raise HTTPException(status_code=404, detail="Business not found")
+    if req.contacted is not None:
+        business.contacted = req.contacted
+    if req.notes is not None:
+        business.notes = req.notes
+    business.notes_updated_at = datetime.utcnow()
+    db.commit()
+    return {
+        "id": str(business.id),
+        "contacted": bool(business.contacted),
+        "notes": business.notes or "",
+        "notes_updated_at": business.notes_updated_at.isoformat(),
+    }
+
+
 class SetDemoRequest(BaseModel):
     demo_slug: str
     demo_url: str
@@ -192,6 +223,9 @@ def _serialize_business(b: Business) -> dict:
         # Single lead-quality figure for the UI; the pain/value/digital/timing
         # sub-scores stay internal and feed into it.
         "grade": grade,
+        "contacted": bool(b.contacted),
+        "notes": b.notes or "",
+        "notes_updated_at": b.notes_updated_at.isoformat() if b.notes_updated_at else None,
         "demo_slug": b.demo_slug,
         "demo_url": b.demo_url,
         "demo_created_at": b.demo_created_at.isoformat() if b.demo_created_at else None,

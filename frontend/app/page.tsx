@@ -63,6 +63,19 @@ function inferCountry(b: Business): string {
   return "Other";
 }
 
+// Filters live at module scope so they survive client-side navigation —
+// clicking into a lead and coming back keeps your working set. A real page
+// refresh reloads the module and resets them, which is the intended reset.
+type FilterState = {
+  search: string; priority: string; sortBy: string; city: string;
+  country: string; category: string; demo: string; source: string; icp: string;
+};
+const DEFAULT_FILTERS: FilterState = {
+  search: "", priority: "", sortBy: "best_fit", city: "",
+  country: "", category: "", demo: "", source: "", icp: "",
+};
+const filterMemory: FilterState = { ...DEFAULT_FILTERS };
+
 function prettyCategory(c: string): string {
   return (c || "")
     .replace(/_/g, " ")
@@ -78,15 +91,26 @@ export default function DashboardPage() {
   // Filters — applied client-side over one full fetch (backend caps at 200
   // rows), so every dropdown change is instant and options self-populate
   // from the actual data.
-  const [search, setSearch] = useState("");
-  const [priority, setPriority] = useState("");
-  const [sortBy, setSortBy] = useState("best_fit");
-  const [cityFilter, setCityFilter] = useState("");
-  const [countryFilter, setCountryFilter] = useState("");
-  const [categoryFilter, setCategoryFilter] = useState("");
-  const [demoFilter, setDemoFilter] = useState("");
-  const [sourceFilter, setSourceFilter] = useState("");
-  const [icpFilter, setIcpFilter] = useState("");
+  const [search, setSearch] = useState(filterMemory.search);
+  const [priority, setPriority] = useState(filterMemory.priority);
+  const [sortBy, setSortBy] = useState(filterMemory.sortBy);
+  const [cityFilter, setCityFilter] = useState(filterMemory.city);
+  const [countryFilter, setCountryFilter] = useState(filterMemory.country);
+  const [categoryFilter, setCategoryFilter] = useState(filterMemory.category);
+  const [demoFilter, setDemoFilter] = useState(filterMemory.demo);
+  const [sourceFilter, setSourceFilter] = useState(filterMemory.source);
+  const [icpFilter, setIcpFilter] = useState(filterMemory.icp);
+  const [contactedFilter, setContactedFilter] = useState("");
+
+  // Mirror every change back to module scope so navigating away and returning
+  // restores the same view.
+  useEffect(() => {
+    Object.assign(filterMemory, {
+      search, priority, sortBy, city: cityFilter, country: countryFilter,
+      category: categoryFilter, demo: demoFilter, source: sourceFilter, icp: icpFilter,
+    });
+  }, [search, priority, sortBy, cityFilter, countryFilter, categoryFilter,
+      demoFilter, sourceFilter, icpFilter]);
 
   // Bulk PoC research
   const [pocBulkLoading, setPocBulkLoading] = useState(false);
@@ -149,6 +173,8 @@ export default function DashboardPage() {
       if (demoFilter === "no" && b.demo_url) return false;
       if (sourceFilter && b.discovery !== sourceFilter) return false;
       if (icpFilter && b.icp_fit !== icpFilter) return false;
+      if (contactedFilter === "todo" && b.contacted) return false;
+      if (contactedFilter === "done" && !b.contacted) return false;
       return true;
     });
     const byScore = (a: Business, b: Business) =>
@@ -172,13 +198,14 @@ export default function DashboardPage() {
       if (sortBy === "review_count") return (b.review_count ?? -1) - (a.review_count ?? -1);
       return byScore(a, b);
     });
-  }, [businesses, search, cityFilter, countryFilter, categoryFilter, priority, demoFilter, sourceFilter, icpFilter, sortBy]);
+  }, [businesses, search, cityFilter, countryFilter, categoryFilter, priority, demoFilter, sourceFilter, icpFilter, contactedFilter, sortBy]);
 
-  const filtersActive = !!(search || cityFilter || countryFilter || categoryFilter || priority || demoFilter || sourceFilter || icpFilter);
+  const filtersActive = !!(search || cityFilter || countryFilter || categoryFilter || priority || demoFilter || sourceFilter || icpFilter || contactedFilter);
   const clearFilters = () => {
     setSearch(""); setCityFilter(""); setCountryFilter("");
     setCategoryFilter(""); setPriority(""); setDemoFilter("");
-    setSourceFilter(""); setIcpFilter("");
+    setSourceFilter(""); setIcpFilter(""); setContactedFilter("");
+    Object.assign(filterMemory, DEFAULT_FILTERS, { sortBy });
   };
 
   // Rendering thousands of heavy rows at once janks the page — reveal in
@@ -186,7 +213,7 @@ export default function DashboardPage() {
   const [visibleCount, setVisibleCount] = useState(200);
   useEffect(() => {
     setVisibleCount(200);
-  }, [search, cityFilter, countryFilter, categoryFilter, priority, demoFilter, sourceFilter, icpFilter, sortBy]);
+  }, [search, cityFilter, countryFilter, categoryFilter, priority, demoFilter, sourceFilter, icpFilter, contactedFilter, sortBy]);
   const visible = displayed.slice(0, visibleCount);
 
   // ── Background job transparency ─────────────────────────────────────────
@@ -532,6 +559,16 @@ export default function DashboardPage() {
             <option value="good" className="bg-slate-900">✅ Good fit</option>
             <option value="borderline" className="bg-slate-900">⚠️ Borderline</option>
             <option value="excluded" className="bg-slate-900">🚫 Poor fit</option>
+          </select>
+
+          <select
+            value={contactedFilter}
+            onChange={(e) => setContactedFilter(e.target.value)}
+            className="bg-white/10 border border-white/20 rounded-lg px-3 py-1.5 text-sm text-white focus:outline-none focus:border-indigo-500"
+          >
+            <option value="" className="bg-slate-900">Outreach: Any</option>
+            <option value="todo" className="bg-slate-900">⬜ Not contacted</option>
+            <option value="done" className="bg-slate-900">✅ Contacted</option>
           </select>
 
           <select

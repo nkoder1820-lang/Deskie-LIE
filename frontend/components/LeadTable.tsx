@@ -1,6 +1,6 @@
 "use client";
 
-import { Business } from "@/lib/api";
+import { Business, api } from "@/lib/api";
 import Link from "next/link";
 import { useState, useCallback, type MouseEvent } from "react";
 
@@ -62,6 +62,8 @@ export default function LeadTable({ businesses, onPreviewEmail }: Props) {
             <th className="text-right px-4 py-3 font-medium hidden lg:table-cell">Reviews</th>
             <th className="text-left px-4 py-3 font-medium">Demo</th>
             <th className="text-left px-4 py-3 font-medium">Outreach</th>
+            <th className="text-center px-4 py-3 font-medium">Done</th>
+            <th className="text-left px-4 py-3 font-medium">Notes</th>
             <th className="px-4 py-3" />
           </tr>
         </thead>
@@ -147,6 +149,12 @@ export default function LeadTable({ businesses, onPreviewEmail }: Props) {
                 </td>
                 <td className="px-4 py-3">
                   <OutreachCell b={b} onPreviewEmail={onPreviewEmail} />
+                </td>
+                <td className="px-4 py-3 text-center">
+                  <ContactedCell b={b} />
+                </td>
+                <td className="px-4 py-3">
+                  <NotesCell b={b} />
                 </td>
                 <td className="px-4 py-3 text-right whitespace-nowrap">
                   {onPreviewEmail && (
@@ -429,6 +437,78 @@ function OutreachCell({
         </a>
       ) : (
         <span className={`${btn} border-white/10 text-slate-600`} title="No LinkedIn profile found">in —</span>
+      )}
+    </div>
+  );
+}
+
+/** "I've reached out to this one." Saved immediately; optimistic so ticking
+ * 20 rows in a row never feels laggy, and reverts if the save fails. */
+function ContactedCell({ b }: { b: Business }) {
+  const [done, setDone] = useState(!!b.contacted);
+  const [saving, setSaving] = useState(false);
+
+  const toggle = async () => {
+    const next = !done;
+    setDone(next);
+    setSaving(true);
+    try {
+      await api.saveNotes(b.id, { contacted: next });
+      b.contacted = next; // keep the row object in sync for re-renders
+    } catch {
+      setDone(!next);
+    } finally {
+      setSaving(false);
+    }
+  };
+
+  return (
+    <input
+      type="checkbox"
+      checked={done}
+      onChange={toggle}
+      disabled={saving}
+      title={done ? "Marked as contacted" : "Mark as contacted"}
+      className="w-4 h-4 accent-emerald-500 cursor-pointer"
+    />
+  );
+}
+
+/** Free-text log — "called Tue, gatekeeper", "mailed owner", "wants a callback
+ * Friday". Saves on blur so typing is never interrupted by a network call. */
+function NotesCell({ b }: { b: Business }) {
+  const [text, setText] = useState(b.notes || "");
+  const [state, setState] = useState<"idle" | "saving" | "saved">("idle");
+
+  const save = async () => {
+    if (text === (b.notes || "")) return;
+    setState("saving");
+    try {
+      await api.saveNotes(b.id, { notes: text });
+      b.notes = text;
+      setState("saved");
+      setTimeout(() => setState("idle"), 1200);
+    } catch {
+      setState("idle");
+    }
+  };
+
+  return (
+    <div className="relative">
+      <input
+        value={text}
+        onChange={(e) => setText(e.target.value)}
+        onBlur={save}
+        onKeyDown={(e) => {
+          if (e.key === "Enter") (e.target as HTMLInputElement).blur();
+        }}
+        placeholder="add note…"
+        className="w-40 bg-white/5 border border-white/10 rounded px-2 py-1 text-xs text-slate-200 placeholder-slate-600 focus:outline-none focus:border-indigo-500 transition-colors"
+      />
+      {state !== "idle" && (
+        <span className="absolute -top-1.5 right-1 text-[9px] text-slate-500">
+          {state === "saving" ? "…" : "✓"}
+        </span>
       )}
     </div>
   );
