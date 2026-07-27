@@ -50,20 +50,23 @@ export default function LeadTable({ businesses, onPreviewEmail }: Props) {
       <table className="w-full text-sm">
         <thead>
           <tr className="border-b border-white/10 text-slate-400 text-xs uppercase tracking-widest">
+            {/* Contact + action columns lead, so the details you actually work
+                from are visible without scrolling right. Classification
+                (fit / found-via / pitch / reviews) trails behind them. */}
             <th className="text-left px-4 py-3 font-medium">Business</th>
-            <th className="text-left px-4 py-3 font-medium">Found Via</th>
-            <th className="text-left px-4 py-3 font-medium">Fit</th>
-            <th className="text-left px-4 py-3 font-medium">Pitch Angle</th>
-            <th className="text-left px-4 py-3 font-medium hidden lg:table-cell">Email</th>
-            <th className="text-left px-4 py-3 font-medium hidden md:table-cell">Phone</th>
-            <th className="text-left px-4 py-3 font-medium">Channels</th>
-            <th className="text-left px-4 py-3 font-medium hidden lg:table-cell">Decision Maker</th>
-            <th className="text-center px-4 py-3 font-medium">Quality</th>
-            <th className="text-right px-4 py-3 font-medium hidden lg:table-cell">Reviews</th>
-            <th className="text-left px-4 py-3 font-medium">Demo</th>
+            <th className="text-left px-4 py-3 font-medium">Email</th>
+            <th className="text-left px-4 py-3 font-medium">Phone</th>
+            <th className="text-left px-4 py-3 font-medium">Decision Maker</th>
             <th className="text-left px-4 py-3 font-medium">Outreach</th>
+            <th className="text-left px-4 py-3 font-medium">Channels</th>
+            <th className="text-left px-4 py-3 font-medium">Demo</th>
             <th className="text-center px-4 py-3 font-medium">Done</th>
             <th className="text-left px-4 py-3 font-medium">Notes</th>
+            <th className="text-center px-4 py-3 font-medium">Quality</th>
+            <th className="text-left px-4 py-3 font-medium hidden lg:table-cell">Fit</th>
+            <th className="text-left px-4 py-3 font-medium hidden lg:table-cell">Found Via</th>
+            <th className="text-left px-4 py-3 font-medium hidden xl:table-cell">Pitch Angle</th>
+            <th className="text-right px-4 py-3 font-medium hidden xl:table-cell">Reviews</th>
             <th className="px-4 py-3" />
           </tr>
         </thead>
@@ -83,7 +86,37 @@ export default function LeadTable({ businesses, onPreviewEmail }: Props) {
                     {b.category.replace(/_/g, " ")} • {b.city}
                   </div>
                 </td>
+                <td className="px-4 py-3 max-w-[200px]">
+                  <CopyCell value={b.email} placeholder="—" type="email" />
+                </td>
                 <td className="px-4 py-3">
+                  <PhoneCell value={b.phone} />
+                </td>
+                <td className="px-4 py-3 max-w-[180px]">
+                  <PocCell b={b} />
+                </td>
+                <td className="px-4 py-3">
+                  <OutreachCell b={b} onPreviewEmail={onPreviewEmail} />
+                </td>
+                <td className="px-4 py-3">
+                  <ChannelIcons b={b} />
+                </td>
+                <td className="px-4 py-3">
+                  <DemoCell url={b.demo_url} />
+                </td>
+                <td className="px-4 py-3 text-center">
+                  <ContactedCell b={b} />
+                </td>
+                <td className="px-4 py-3">
+                  <NotesCell b={b} />
+                </td>
+                <td className="px-4 py-3 text-center">
+                  <QualityCell b={b} />
+                </td>
+                <td className="px-4 py-3 hidden lg:table-cell">
+                  <FitCell fit={b.icp_fit} reasons={b.icp_reasons} />
+                </td>
+                <td className="px-4 py-3 hidden lg:table-cell">
                   {b.discovery === "hiring" ? (
                     <span
                       className="px-2 py-0.5 rounded-md text-[11px] font-semibold bg-emerald-500/15 text-emerald-400 border border-emerald-500/40 whitespace-nowrap"
@@ -100,10 +133,7 @@ export default function LeadTable({ businesses, onPreviewEmail }: Props) {
                     </span>
                   )}
                 </td>
-                <td className="px-4 py-3">
-                  <FitCell fit={b.icp_fit} reasons={b.icp_reasons} />
-                </td>
-                <td className="px-4 py-3">
+                <td className="px-4 py-3 hidden xl:table-cell">
                   {score?.pitch_angle ? (
                     <span className="inline-flex items-center gap-1">
                       <span className={`px-2.5 py-1 rounded-md text-xs font-semibold border ${PITCH_ANGLE_STYLES[score.pitch_angle] || "bg-white/10 text-white"}`}>
@@ -126,35 +156,8 @@ export default function LeadTable({ businesses, onPreviewEmail }: Props) {
                     <span className="text-slate-600">—</span>
                   )}
                 </td>
-                <td className="px-4 py-3 hidden lg:table-cell max-w-[200px]">
-                  <CopyCell value={b.email} placeholder="—" type="email" />
-                </td>
-                <td className="px-4 py-3 hidden md:table-cell">
-                  <PhoneCell value={b.phone} />
-                </td>
-                <td className="px-4 py-3">
-                  <ChannelIcons b={b} />
-                </td>
-                <td className="px-4 py-3 hidden lg:table-cell max-w-[180px]">
-                  <PocCell b={b} />
-                </td>
-                <td className="px-4 py-3 text-center">
-                  <QualityCell b={b} />
-                </td>
-                <td className="px-4 py-3 text-right hidden lg:table-cell text-slate-300">
+                <td className="px-4 py-3 text-right hidden xl:table-cell text-slate-300">
                   {b.review_count != null ? b.review_count.toLocaleString() : "—"}
-                </td>
-                <td className="px-4 py-3">
-                  <DemoCell url={b.demo_url} />
-                </td>
-                <td className="px-4 py-3">
-                  <OutreachCell b={b} onPreviewEmail={onPreviewEmail} />
-                </td>
-                <td className="px-4 py-3 text-center">
-                  <ContactedCell b={b} />
-                </td>
-                <td className="px-4 py-3">
-                  <NotesCell b={b} />
                 </td>
                 <td className="px-4 py-3 text-right whitespace-nowrap">
                   {onPreviewEmail && (

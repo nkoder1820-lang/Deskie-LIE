@@ -19,6 +19,9 @@ from app import runtime_settings
 from app.config import settings as _settings
 
 
+DESKIE_SITE = "https://deskie.sourcer.live"
+
+
 def _calendly_url() -> str:
     """Booking link for the "Deskie setup discovery" call, offered as the
     secondary CTA everywhere. Empty until configured — every template then
@@ -224,14 +227,18 @@ def compose_outreach_email(business, score, enricher_result: dict | None = None)
 
     cta_href = e(demo_url) if demo_ready else "#"
     booking = _calendly_url()
-    booking_html = (
-        f"""  <tr><td align="center" style="padding:0 32px 22px 32px;font-size:13px;color:#555C6E;">
-    Prefer to talk it through?
-    <a href="{e(booking)}" style="color:{ACCENT};font-weight:600;text-decoration:none;">
-      Book a 15-min Deskie setup discovery &rarr;</a>
-  </td></tr>"""
+    # Sign-off offering both self-serve and done-for-you, with "Deskie" and
+    # "Book a 10-min demo" as the two links.
+    book_link = (
+        f'or <a href="{e(booking)}" style="color:{ACCENT};font-weight:600;text-decoration:none;">'
+        f"Book a 10-min demo</a> if you&rsquo;d like us to set it up for you"
         if booking else ""
     )
+    booking_html = f"""  <tr><td style="padding:0 32px 20px 32px;font-size:14px;color:#555C6E;line-height:1.6;">
+    If you like it and would love to get Deskie for your business, try it yourself at
+    <a href="{DESKIE_SITE}" style="color:{ACCENT};font-weight:600;text-decoration:none;">Deskie</a>
+    {book_link}.
+  </td></tr>"""
     html_body = f"""<!DOCTYPE html>
 <html><body style="margin:0;padding:0;background:#EEF0F5;font-family:-apple-system,Segoe UI,Roboto,Helvetica,Arial,sans-serif;">
 <table role="presentation" width="100%" cellpadding="0" cellspacing="0" style="background:#EEF0F5;padding:32px 12px;">
@@ -297,12 +304,14 @@ def compose_outreach_email(business, score, enricher_result: dict | None = None)
         "If she isn't better than voicemail on your busiest day, just ignore me.",
         "",
     ]
-    if booking:
-        text_lines += [
-            "Prefer to talk it through? Book a 15-min Deskie setup discovery:",
-            booking,
-            "",
-        ]
+    # Plain-text twin of the HTML sign-off. No anchors available here, so the
+    # URLs are spelled out inline after each label.
+    text_lines += [
+        f"If you like it and would love to get Deskie for your business, try it "
+        f"yourself at Deskie ({DESKIE_SITE})"
+        + (f" or Book a 10-min demo ({booking}) if you'd like us to set it up for you." if booking else "."),
+        "",
+    ]
     text_lines += [
         "Niket · Deskie",
         "deskie70@gmail.com",
@@ -321,7 +330,10 @@ def compose_outreach_email(business, score, enricher_result: dict | None = None)
         f"and reputation already configured. Hear {agent} live"
         + (f": {demo_url}" if demo_ready else " (link coming)")
         + " — 60 seconds, no signup. If she's not better than voicemail, ignore me :)"
-        + (f" Or grab 15 mins with me here: {booking}" if booking else "")
+        + f"\n\nIf you like it and would love to get Deskie for your business, try it "
+          f"yourself at Deskie ({DESKIE_SITE})"
+        + (f" or Book a 10-min demo ({booking}) if you'd like us to set it up for you."
+           if booking else ".")
     )
 
     return {

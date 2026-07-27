@@ -670,7 +670,7 @@ export default function DashboardPage() {
           onClick={() => setEmailPreview(null)}
         >
           <div
-            className="bg-[#0f1526] border border-white/15 rounded-2xl w-full max-w-3xl max-h-[92vh] flex flex-col overflow-hidden shadow-2xl"
+            className="bg-[#0f1526] border border-white/15 rounded-2xl w-full max-w-5xl max-h-[95vh] flex flex-col overflow-hidden shadow-2xl"
             onClick={(e) => e.stopPropagation()}
           >
             <div className="px-5 py-4 border-b border-white/10 flex items-start justify-between gap-3">
@@ -707,11 +707,14 @@ export default function DashboardPage() {
               </div>
             )}
 
-            <div className="flex-1 overflow-auto bg-[#EEF0F5]">
+            {/* min-h matters: this sits in a flex column next to the call-script
+                and DM panels, and without it flex-1 collapses the preview to a
+                sliver whenever those siblings are present. */}
+            <div className="flex-1 min-h-[45vh] overflow-auto bg-[#EEF0F5]">
               <iframe
                 title="email preview"
                 srcDoc={emailPreview.data.html}
-                className="w-full h-[520px] border-0"
+                className="w-full h-[760px] border-0"
               />
             </div>
 
