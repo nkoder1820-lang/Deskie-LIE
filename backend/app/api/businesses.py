@@ -1,7 +1,7 @@
 from datetime import datetime
 
 from app.models.business import Business, LeadScore, LeadReport
-from app.scoring.icp import assess_icp
+from app.scoring.icp import assess_icp, lead_grade
 from app.database import get_db
 
 from fastapi import APIRouter, Depends, HTTPException, Query
@@ -147,6 +147,13 @@ def _serialize_business(b: Business) -> dict:
         phones=b.phones,
         website=b.website,
         review_count=b.review_count,
+        place_types=b.place_types,
+    )
+    discovery = "hiring" if (b.source or "").endswith("_jobs") else "industry"
+    grade = lead_grade(
+        icp["fit"],
+        float(score.final_score) if score and score.final_score else None,
+        discovery,
     )
     return {
         "id": str(b.id),
@@ -181,6 +188,10 @@ def _serialize_business(b: Business) -> dict:
         "discovery": "hiring" if (b.source or "").endswith("_jobs") else "industry",
         "icp_fit": icp["fit"],
         "icp_reasons": icp["reasons"],
+        "place_types": b.place_types or [],
+        # Single lead-quality figure for the UI; the pain/value/digital/timing
+        # sub-scores stay internal and feed into it.
+        "grade": grade,
         "demo_slug": b.demo_slug,
         "demo_url": b.demo_url,
         "demo_created_at": b.demo_created_at.isoformat() if b.demo_created_at else None,

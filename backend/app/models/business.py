@@ -35,6 +35,7 @@ class Business(Base):
     detected_tech = Column(JSON, default=list)
     place_id = Column(String(256), unique=True)      # Google Place ID — dedup key
     source = Column(String(64), default="google_places")
+    place_types = Column(JSON)                       # Google's own types, e.g. ["lodging","hotel"]
     demo_slug = Column(String(120))                 # deskie-agent /demo/<slug> for this lead, once created
     demo_url = Column(Text)                         # absolute shareable link, e.g. https://app.deskie.com/demo/<slug>
     demo_created_at = Column(DateTime)               # when the demo agent was created

@@ -265,6 +265,10 @@ class LeadIntelligenceOrchestrator:
             # shouldn't erase a hiring signal).
             if (biz.source or "").endswith("_jobs"):
                 existing.source = biz.source
+            if getattr(biz, "place_types", None):
+                existing.place_types = biz.place_types
+            if biz.category:
+                existing.category = biz.category
             db.commit()
             return existing
         else:
@@ -282,6 +286,7 @@ class LeadIntelligenceOrchestrator:
                 place_id=biz.place_id,
                 maps_url=biz.maps_url,
                 source=biz.source,
+                place_types=getattr(biz, "place_types", None) or None,
             )
             db.add(record)
             db.commit()

@@ -32,6 +32,11 @@ class BusinessDiscovery(BaseModel):
     place_id: Optional[str] = None
     maps_url: Optional[str] = None
     source: str = "google_places"
+    # What Google actually says this place is (e.g. ["lodging","hotel"]) —
+    # distinct from the industry we searched for. Used to catch leads that
+    # don't match the search intent at all (a hotel answering a "dental
+    # clinics" query) and to gate non-ICP venue types.
+    place_types: list = Field(default_factory=list)
 
 
 # ── Industry → Search Query Mapping ─────────────────────────────────
@@ -57,6 +62,19 @@ INDUSTRY_QUERIES = {
     "premium_salons":      "premium salon beauty parlour",
     "restaurants":         "restaurant",
 }
+
+
+def _real_category(place: dict, searched_industry: str) -> str:
+    """The business's OWN category, not the search term. Previously every
+    result was stamped with whatever industry was typed into the box, so a
+    hotel found by a "dental clinics" search was stored as a dental clinic."""
+    display = (place.get("primaryTypeDisplayName") or {}).get("text")
+    if display:
+        return display
+    types = place.get("types") or []
+    if types:
+        return types[0].replace("_", " ").title()
+    return searched_industry
 
 
 class BusinessDiscoveryAgent:
@@ -151,6 +169,7 @@ class BusinessDiscoveryAgent:
                 "places.internationalPhoneNumber,places.nationalPhoneNumber,"
                 "places.websiteUri,places.googleMapsUri,places.businessStatus,"
                 "places.rating,places.userRatingCount,places.regularOpeningHours,"
+                "places.types,places.primaryTypeDisplayName,"
                 "nextPageToken"
             )
         }
@@ -194,7 +213,8 @@ class BusinessDiscoveryAgent:
                 businesses.append(
                     BusinessDiscovery(
                         name=p.get("displayName", {}).get("text", "Unknown"),
-                        category=industry,
+                        category=_real_category(p, industry),
+                        place_types=p.get("types") or [],
                         city=city,
                         phone=p.get("internationalPhoneNumber") or p.get("nationalPhoneNumber"),
                         website=p.get("websiteUri"),
