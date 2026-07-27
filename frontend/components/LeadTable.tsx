@@ -58,13 +58,10 @@ export default function LeadTable({ businesses, onPreviewEmail }: Props) {
             <th className="text-left px-4 py-3 font-medium hidden md:table-cell">Phone</th>
             <th className="text-left px-4 py-3 font-medium">Channels</th>
             <th className="text-left px-4 py-3 font-medium hidden lg:table-cell">Decision Maker</th>
-            <th className="text-center px-4 py-3 font-medium">Score</th>
-            <th className="text-center px-4 py-3 font-medium">Priority</th>
-            <th className="text-center px-4 py-3 font-medium hidden md:table-cell">Pain</th>
-            <th className="text-center px-4 py-3 font-medium hidden md:table-cell">Value</th>
-            <th className="text-center px-4 py-3 font-medium hidden lg:table-cell">Digital</th>
-            <th className="text-right px-4 py-3 font-medium">Reviews</th>
+            <th className="text-center px-4 py-3 font-medium">Quality</th>
+            <th className="text-right px-4 py-3 font-medium hidden lg:table-cell">Reviews</th>
             <th className="text-left px-4 py-3 font-medium">Demo</th>
+            <th className="text-left px-4 py-3 font-medium">Outreach</th>
             <th className="px-4 py-3" />
           </tr>
         </thead>
@@ -140,33 +137,16 @@ export default function LeadTable({ businesses, onPreviewEmail }: Props) {
                   <PocCell b={b} />
                 </td>
                 <td className="px-4 py-3 text-center">
-                  <span className={`font-bold text-lg ${SCORE_COLOR(finalScore ?? null)}`}>
-                    {finalScore != null ? finalScore.toFixed(0) : "—"}
-                  </span>
+                  <QualityCell b={b} />
                 </td>
-                <td className="px-4 py-3 text-center">
-                  {priority ? (
-                    <span className={`px-2 py-0.5 rounded-full text-xs font-semibold ${PRIORITY_STYLES[priority]}`}>
-                      {priority}
-                    </span>
-                  ) : (
-                    <span className="text-slate-600">—</span>
-                  )}
-                </td>
-                <td className="px-4 py-3 text-center hidden md:table-cell text-slate-300">
-                  {score?.pain_score != null ? score.pain_score.toFixed(0) : "—"}
-                </td>
-                <td className="px-4 py-3 text-center hidden md:table-cell text-slate-300">
-                  {score?.business_value_score != null ? score.business_value_score.toFixed(0) : "—"}
-                </td>
-                <td className="px-4 py-3 text-center hidden lg:table-cell text-slate-300">
-                  {score?.digital_score != null ? score.digital_score.toFixed(0) : "—"}
-                </td>
-                <td className="px-4 py-3 text-right text-slate-300">
+                <td className="px-4 py-3 text-right hidden lg:table-cell text-slate-300">
                   {b.review_count != null ? b.review_count.toLocaleString() : "—"}
                 </td>
                 <td className="px-4 py-3">
                   <DemoCell url={b.demo_url} />
+                </td>
+                <td className="px-4 py-3">
+                  <OutreachCell b={b} onPreviewEmail={onPreviewEmail} />
                 </td>
                 <td className="px-4 py-3 text-right whitespace-nowrap">
                   {onPreviewEmail && (
@@ -339,6 +319,118 @@ function FitCell({ fit, reasons }: { fit: Business["icp_fit"]; reasons: string[]
     >
       {m.icon} {m.label}
     </span>
+  );
+}
+
+const GRADE_STYLES: Record<string, string> = {
+  A: "bg-emerald-500/20 text-emerald-300 border-emerald-500/50",
+  B: "bg-lime-500/15 text-lime-300 border-lime-500/40",
+  C: "bg-yellow-500/15 text-yellow-300 border-yellow-500/40",
+  D: "bg-slate-600/20 text-slate-400 border-slate-600/50",
+};
+
+/** One quality figure instead of the old score/priority/pain/value/digital
+ * columns. Those sub-scores still exist and still drive this — they're just
+ * internal now, shown only on hover for a sanity check. */
+function QualityCell({ b }: { b: Business }) {
+  const g = b.grade;
+  if (!g) return <span className="text-slate-600">—</span>;
+  const s = b.score;
+  const detail = [
+    `Deskie score ${s?.final_score?.toFixed(0) ?? "—"}`,
+    s?.priority ? `priority ${s.priority}` : null,
+    b.discovery === "hiring" ? "actively hiring (+)" : null,
+    b.icp_fit !== "good" ? `ICP ${b.icp_fit} (−)` : null,
+    s?.pain_score != null ? `pain ${s.pain_score.toFixed(0)}` : null,
+    s?.business_value_score != null ? `value ${s.business_value_score.toFixed(0)}` : null,
+  ].filter(Boolean).join(" · ");
+  return (
+    <span
+      title={detail}
+      className={`inline-flex items-baseline gap-1 px-2 py-0.5 rounded-md border text-xs font-bold cursor-help ${GRADE_STYLES[g.label] || GRADE_STYLES.D}`}
+    >
+      {g.label}
+      <span className="font-normal opacity-70">{g.score}</span>
+    </span>
+  );
+}
+
+/** One button per channel. Email opens the full preview (HTML + send path);
+ * WhatsApp and LinkedIn open the app itself with the message pre-filled or
+ * copied, since neither allows programmatic sending. */
+function OutreachCell({
+  b,
+  onPreviewEmail,
+}: {
+  b: Business;
+  onPreviewEmail?: (b: Business) => void;
+}) {
+  const [copied, setCopied] = useState<string | null>(null);
+  const flash = (k: string) => {
+    setCopied(k);
+    setTimeout(() => setCopied(null), 1400);
+  };
+
+  const waMsg = b.report?.whatsapp_message || "";
+  const waNumber = (b.whatsapp || b.phone || "").replace(/[^\d+]/g, "").replace(/^\+/, "");
+  const isIndia = (b.phone || "").includes("+91");
+  const waHref = waNumber ? `https://wa.me/${waNumber}?text=${encodeURIComponent(waMsg)}` : null;
+
+  const poc = (b.poc_contacts || []).find((c) => c.linkedin_url);
+  const liUrl = poc?.linkedin_url || b.social_links?.linkedin || null;
+  const liMsg = b.report?.whatsapp_message || b.report?.outreach_email || "";
+
+  const btn = "px-1.5 py-0.5 rounded text-[11px] border transition-colors whitespace-nowrap";
+
+  return (
+    <div className="flex items-center gap-1">
+      <button
+        onClick={() => onPreviewEmail?.(b)}
+        title="Open the full email — HTML preview, subject, call script, DM drafts"
+        className={`${btn} border-indigo-500/40 bg-indigo-500/10 text-indigo-300 hover:bg-indigo-500/20`}
+      >
+        ✉️ Mail
+      </button>
+
+      {waHref ? (
+        <a
+          href={waHref}
+          target="_blank"
+          rel="noopener noreferrer"
+          title={
+            isIndia
+              ? "Opens WhatsApp with the message pre-filled — you press send"
+              : "Opens WhatsApp pre-filled. Note: many US businesses aren't on WhatsApp"
+          }
+          className={`${btn} border-green-500/40 bg-green-500/10 text-green-300 hover:bg-green-500/20 ${
+            isIndia ? "" : "opacity-60"
+          }`}
+        >
+          💬 WA
+        </a>
+      ) : (
+        <span className={`${btn} border-white/10 text-slate-600`} title="No phone number">💬 —</span>
+      )}
+
+      {liUrl ? (
+        <a
+          href={liUrl}
+          target="_blank"
+          rel="noopener noreferrer"
+          onClick={() => {
+            // LinkedIn allows no prefilled DM, so put the text on the
+            // clipboard as the profile opens — paste is one keystroke.
+            if (liMsg) navigator.clipboard.writeText(liMsg).then(() => flash("li")).catch(() => {});
+          }}
+          title="Opens the LinkedIn profile and copies the message (LinkedIn allows no pre-filled DMs)"
+          className={`${btn} border-sky-500/40 bg-sky-500/10 text-sky-300 hover:bg-sky-500/20`}
+        >
+          {copied === "li" ? "✓ copied" : "in DM"}
+        </a>
+      ) : (
+        <span className={`${btn} border-white/10 text-slate-600`} title="No LinkedIn profile found">in —</span>
+      )}
+    </div>
   );
 }
 

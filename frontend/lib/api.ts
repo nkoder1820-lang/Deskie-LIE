@@ -32,6 +32,10 @@ export interface Business {
    *  larger operation; excluded = clear non-ICP (chain/national/agency). */
   icp_fit: "good" | "borderline" | "excluded";
   icp_reasons: string[];
+  place_types: string[];
+  /** Single lead-quality figure shown in the table. The pain/value/digital/
+   *  timing sub-scores still exist on `score` but are internal now. */
+  grade: { score: number; label: "A" | "B" | "C" | "D"; tone: string } | null;
   demo_slug: string | null;
   demo_url: string | null;
   demo_created_at: string | null;
