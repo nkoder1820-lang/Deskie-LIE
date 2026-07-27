@@ -171,6 +171,7 @@ export const api = {
   // via Google Jobs) and work back to the business. Always runs in background.
   runHiringResearch: (req: {
     city: string;
+    /** One title or many, comma-separated — all searched together. */
     role?: string;
     industry?: string;
     country?: string;

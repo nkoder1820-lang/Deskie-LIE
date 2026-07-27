@@ -197,10 +197,17 @@ def bulk_status():
 
 class HiringResearchRequest(BaseModel):
     city: str                        # e.g. "Austin, TX"
-    role: str = "receptionist"       # the role being hired for
+    # One title or many — a comma-separated string ("receptionist, front desk
+    # executive") or a list. Every title is searched and the results merge,
+    # so one run covers all the ways a business phrases the same job.
+    role: str | list[str] = "receptionist"
     industry: Optional[str] = None   # optional niche filter, e.g. "dental"
     country: Optional[str] = None
     max_results: int = 20            # businesses (not postings), up to 2000
+
+    @property
+    def role_label(self) -> str:
+        return ", ".join(self.role) if isinstance(self.role, list) else self.role
 
 
 def _run_hiring_job(req: HiringResearchRequest):
@@ -210,7 +217,7 @@ def _run_hiring_job(req: HiringResearchRequest):
             "total_pairs": 1,
             "pairs_done": 0,
             "leads_found": 0,
-            "current": f"hiring-first: {req.role} in {req.city}",
+            "current": f"hiring-first: {req.role_label} in {req.city}",
             "errors": [],
             "started_at": datetime.utcnow().isoformat(),
         })
@@ -219,7 +226,7 @@ def _run_hiring_job(req: HiringResearchRequest):
         orchestrator = LeadIntelligenceOrchestrator(session)
         results = orchestrator.run_hiring_research(
             city=req.city.strip(),
-            role=req.role.strip() or "receptionist",
+            role=req.role,
             industry=(req.industry or "").strip() or None,
             country=(req.country or "").strip() or None,
             max_results=min(req.max_results, 2000),
@@ -229,7 +236,7 @@ def _run_hiring_job(req: HiringResearchRequest):
     except Exception as e:
         logger.error(f"[HiringResearch] Failed: {e}", exc_info=True)
         with _bulk_lock:
-            _bulk_state["errors"].append(f"hiring-first {req.role} in {req.city}: {e}")
+            _bulk_state["errors"].append(f"hiring-first {req.role_label} in {req.city}: {e}")
     finally:
         session.close()
         with _bulk_lock:
@@ -254,7 +261,7 @@ def run_hiring_research(req: HiringResearchRequest, background_tasks: Background
     return {
         "status": "started",
         "mode": "hiring",
-        "role": req.role,
+        "role": req.role_label,
         "city": req.city,
         "poll": "/api/research/bulk/status",
     }

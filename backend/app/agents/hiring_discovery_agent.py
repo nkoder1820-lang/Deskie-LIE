@@ -34,7 +34,25 @@ logger = logging.getLogger(__name__)
 _RECEPTION_KEYWORDS = (
     "reception", "front desk", "front-desk", "front office",
     "office assistant", "office coordinator", "patient coordinator",
+    "office executive", "desk executive", "desk associate", "desk agent",
+    "guest relations", "guest service", "customer service associate",
+    "appointment", "scheduler", "switchboard", "call handler", "phone operator",
+    "telephone operator", "admin assistant", "administrative assistant",
+    "office administrator", "clinic coordinator", "medical secretary",
 )
+
+
+def _split_roles(role: str | list[str]) -> list[str]:
+    """One title or many — accepts a list or a comma/newline-separated string.
+    Deduped, order preserved; falls back to 'receptionist'."""
+    raw = role if isinstance(role, list) else re.split(r"[,\n]", role or "")
+    out, seen = [], set()
+    for r in raw:
+        r = (r or "").strip()
+        if r and r.lower() not in seen:
+            seen.add(r.lower())
+            out.append(r)
+    return out or ["receptionist"]
 
 # Adzuna's API is namespaced by country path segment.
 _ADZUNA_COUNTRIES = {
@@ -72,30 +90,47 @@ class HiringDiscoveryAgent:
     def run(
         self,
         city: str,
-        role: str = "receptionist",
+        role: str | list[str] = "receptionist",
         industry: str | None = None,
         country: str | None = None,
         max_results: int = 20,
     ) -> list[tuple[BusinessDiscovery, dict]]:
-        """Returns (business, seeded_enricher_result) pairs, newest-posting first."""
+        """Returns (business, seeded_enricher_result) pairs.
+
+        `role` accepts one title or many ("receptionist, front desk executive,
+        telephone receptionist") — every title is searched on every provider
+        in the same pass and the postings merge, so one run covers all the
+        ways businesses phrase the same job."""
         location = f"{city}, {country}" if country else city
-        query = f"{role} {industry}".strip() if industry else role
+        roles = _split_roles(role)
+        # Per-role depth so a 6-role run doesn't fetch 6x the pages; the
+        # company cap (max_results) governs the final lead count anyway.
+        per_role = max(10, (max_results * 3) // max(1, len(roles)))
 
         # Free providers run TOGETHER and their postings merge (deduped by
         # company below) — different boards surface different businesses.
         # SerpAPI google_jobs stays as the last-resort fallback only.
         postings: list[dict] = []
-        if settings.ADZUNA_APP_ID and settings.ADZUNA_APP_KEY:
-            found = self._search_adzuna(query, city, country, max_results)
-            logger.info(f"[HiringDiscovery] Adzuna: {len(found)} postings for '{query}' in {location}")
-            postings += found
-        if settings.JOOBLE_API_KEYS.strip():
-            found = self._search_jooble(query, location, max_results)
-            logger.info(f"[HiringDiscovery] Jooble: {len(found)} postings for '{query}' in {location}")
-            postings += found
+        for r in roles:
+            query = f"{r} {industry}".strip() if industry else r
+            if settings.ADZUNA_APP_ID and settings.ADZUNA_APP_KEY:
+                found = self._search_adzuna(query, city, country, per_role)
+                logger.info(f"[HiringDiscovery] Adzuna: {len(found)} postings for '{query}' in {location}")
+                for p in found:
+                    p["matched_role"] = r
+                postings += found
+            if settings.JOOBLE_API_KEYS.strip():
+                found = self._search_jooble(query, location, per_role)
+                logger.info(f"[HiringDiscovery] Jooble: {len(found)} postings for '{query}' in {location}")
+                for p in found:
+                    p["matched_role"] = r
+                postings += found
         if not postings and settings.SERPAPI_KEY:
+            query = f"{roles[0]} {industry}".strip() if industry else roles[0]
             max_pages = max(1, min(20, (max_results + 9) // 10 + 1))
             postings = self._search_serpapi_jobs(query, location, max_pages)
+            for p in postings:
+                p["matched_role"] = roles[0]
             logger.info(f"[HiringDiscovery] google_jobs: {len(postings)} postings for '{query}' in {location}")
         if not postings:
             if self._last_search_error:
@@ -105,6 +140,18 @@ class HiringDiscoveryAgent:
                 raise RuntimeError(f"Job-posting search failed: {self._last_search_error}{hint}")
             logger.warning("[HiringDiscovery] No postings found (and no provider errors).")
             return []
+
+        # The same posting can match several role queries — drop repeats
+        # before anything downstream counts them.
+        deduped, seen_posts = [], set()
+        for p in postings:
+            key = (p.get("url") or "").strip() or f"{p.get('company_name','').lower()}|{p.get('title','').lower()}"
+            if key in seen_posts:
+                continue
+            seen_posts.add(key)
+            deduped.append(p)
+        logger.info(f"[HiringDiscovery] {len(postings)} postings -> {len(deduped)} unique across {len(roles)} role(s)")
+        postings = deduped
 
         # Interleave providers round-robin so both contribute companies even
         # when max_results is small (otherwise whichever provider's postings
@@ -148,7 +195,10 @@ class HiringDiscoveryAgent:
             if not biz:
                 logger.info(f"[HiringDiscovery] Could not resolve '{company}' via Places — skipped.")
                 continue
-            results.append((biz, self._seed_enricher(role, jobs)))
+            # Seed with the role(s) this company actually matched, not the
+            # whole search list.
+            matched = " / ".join(dict.fromkeys(j.get("matched_role", "") for j in jobs if j.get("matched_role")))
+            results.append((biz, self._seed_enricher(matched or roles[0], jobs)))
         logger.info(f"[HiringDiscovery] Resolved {len(results)} hiring businesses.")
         return results
 

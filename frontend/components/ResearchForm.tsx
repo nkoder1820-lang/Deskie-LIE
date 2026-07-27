@@ -95,9 +95,39 @@ interface Props {
   onComplete: () => void;
 }
 
+// Businesses phrase the same front-desk job a dozen ways — searching only
+// "receptionist" misses most of them. All selected titles are searched
+// together in one run and the results merge.
 const ROLE_SUGGESTIONS = [
-  "receptionist", "front desk", "office assistant", "medical receptionist",
-  "dental receptionist", "salon receptionist", "patient coordinator",
+  "receptionist", "front desk", "front desk executive", "front desk associate",
+  "front office executive", "telephone receptionist", "telecaller",
+  "office assistant", "office administrator", "administrative assistant",
+  "medical receptionist", "dental receptionist", "salon receptionist",
+  "patient coordinator", "appointment scheduler", "guest relations executive",
+  "customer service associate", "call handler", "switchboard operator",
+];
+
+// One click loads a whole family of titles.
+const ROLE_PRESETS: { label: string; roles: string[] }[] = [
+  {
+    label: "🖥️ All front-desk titles",
+    roles: [
+      "receptionist", "front desk", "front desk executive",
+      "front office executive", "telephone receptionist", "office assistant",
+    ],
+  },
+  {
+    label: "🏥 Clinic / medical",
+    roles: ["medical receptionist", "patient coordinator", "front desk", "appointment scheduler"],
+  },
+  {
+    label: "💇 Salon / spa",
+    roles: ["salon receptionist", "front desk", "guest relations executive", "appointment scheduler"],
+  },
+  {
+    label: "📞 Phone-heavy roles",
+    roles: ["telephone receptionist", "telecaller", "call handler", "switchboard operator"],
+  },
 ];
 
 export default function ResearchForm({ onComplete }: Props) {
@@ -114,6 +144,8 @@ export default function ResearchForm({ onComplete }: Props) {
 
   // SerpAPI enricher toggle — persisted server-side, applies to future runs
   // immediately. null = not yet loaded (hide the control until we know).
+  const roleCount = role.split(",").map((r) => r.trim()).filter(Boolean).length;
+
   const [serpEnricher, setSerpEnricher] = useState<boolean | null>(null);
   const [serpConfigured, setSerpConfigured] = useState(true);
   useEffect(() => {
@@ -281,7 +313,7 @@ export default function ResearchForm({ onComplete }: Props) {
 
       <p className="text-sm text-slate-400 mb-3">
         {mode === "hiring"
-          ? "Finds businesses ALREADY hiring this role right now — live postings aggregated from LinkedIn, Indeed, ZipRecruiter, career pages and more (Adzuna + Jooble, both free) — then builds the full lead: contacts, decision makers, pitch angle and outreach drafts, with the job posting as evidence."
+          ? "Finds businesses ALREADY hiring these roles right now — live postings aggregated from LinkedIn, Indeed, ZipRecruiter, career pages and more (Adzuna + Jooble, both free). Select several titles: businesses phrase the same front-desk job many ways, and every title is searched in one pass. Each match becomes a full lead: contacts, decision makers, pitch angle and outreach drafts, with the job posting as evidence."
           : bulkMode
           ? "Comma-separate multiple industries and cities — every combination is researched in the background."
           : "Discover and score leads for any industry, in any city worldwide. Type freely — suggestions are optional. Runs above 100 leads continue in the background."}
@@ -315,21 +347,41 @@ export default function ResearchForm({ onComplete }: Props) {
           {mode === "hiring" && (
             <div className="sm:col-span-2">
               <label className="block text-xs font-medium text-slate-400 mb-1.5 uppercase tracking-wide">
-                Role being hired
+                Roles being hired{" "}
+                <span className="normal-case tracking-normal text-slate-500">
+                  — pick as many as you like, all searched together
+                </span>
               </label>
               <input
                 type="text"
                 value={role}
                 onChange={(e) => setRole(e.target.value)}
-                placeholder="e.g. receptionist, front desk..."
+                placeholder="receptionist, front desk executive, telephone receptionist..."
                 required
                 className="w-full bg-white/10 border border-white/20 rounded-lg px-3 py-2 text-white text-sm placeholder-slate-500 focus:outline-none focus:border-indigo-500 transition-colors"
               />
+              <div className="flex flex-wrap gap-1.5 mt-2">
+                {ROLE_PRESETS.map((p) => (
+                  <button
+                    key={p.label}
+                    type="button"
+                    onClick={() => setRole(p.roles.join(", "))}
+                    className="px-2 py-0.5 rounded-md text-[11px] border border-indigo-500/40 bg-indigo-500/10 text-indigo-300 hover:bg-indigo-500/20 transition-colors"
+                  >
+                    {p.label}
+                  </button>
+                ))}
+                {roleCount > 0 && (
+                  <span className="px-2 py-0.5 text-[11px] text-slate-500">
+                    {roleCount} title{roleCount !== 1 ? "s" : ""} selected
+                  </span>
+                )}
+              </div>
               <SuggestionChips
                 options={ROLE_SUGGESTIONS.map((r) => ({ label: r, insert: r }))}
                 value={role}
                 onChange={setRole}
-                multi={false}
+                multi
               />
             </div>
           )}
