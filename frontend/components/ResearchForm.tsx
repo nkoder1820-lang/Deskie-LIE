@@ -153,6 +153,7 @@ export default function ResearchForm({ onComplete }: Props) {
       .then((s) => {
         setSerpEnricher(s.enable_serpapi_enricher);
         setSerpConfigured(s.serpapi_configured);
+        setCalendly(s.calendly_url || "");
       })
       .catch(() => setSerpEnricher(null));
   }, []);
@@ -166,6 +167,23 @@ export default function ResearchForm({ onComplete }: Props) {
       setSerpEnricher(s.enable_serpapi_enricher);
     } catch {
       setSerpEnricher(!next); // revert on failure
+    }
+  };
+
+  // Calendly "Deskie setup discovery" link — appended to every email, DM and
+  // call script. Saved on blur; empty simply omits the booking line everywhere.
+  const [calendly, setCalendly] = useState("");
+  const [calendlySaved, setCalendlySaved] = useState<"idle" | "saving" | "saved">("idle");
+  const saveCalendly = async () => {
+    const url = calendly.trim();
+    setCalendlySaved("saving");
+    try {
+      const s = await api.updateSettings({ calendly_url: url });
+      setCalendly(s.calendly_url || "");
+      setCalendlySaved("saved");
+      setTimeout(() => setCalendlySaved("idle"), 2000);
+    } catch {
+      setCalendlySaved("idle");
     }
   };
 
@@ -341,6 +359,28 @@ export default function ResearchForm({ onComplete }: Props) {
           </span>
         </label>
       )}
+
+      <label className="block mb-5 text-xs bg-white/5 border border-white/10 rounded-lg px-3 py-2.5">
+        <span className="font-medium text-slate-300">Booking link — “Deskie setup discovery”</span>
+        <input
+          type="url"
+          value={calendly}
+          onChange={(e) => setCalendly(e.target.value)}
+          onBlur={saveCalendly}
+          placeholder="https://calendly.com/your-name/deskie-setup-discovery"
+          className="mt-1.5 w-full bg-slate-950/60 border border-white/10 rounded-md px-2.5 py-1.5
+                     text-slate-200 placeholder:text-slate-600 focus:outline-none focus:border-indigo-500"
+        />
+        <span className="block text-[10px] text-slate-600 mt-1">
+          {calendlySaved === "saving"
+            ? "Saving…"
+            : calendlySaved === "saved"
+            ? "Saved — now included in every email, DM and call script."
+            : calendly
+            ? "Included as the “book a call” CTA in every email, DM and call script."
+            : "Leave empty to send outreach without a booking CTA."}
+        </span>
+      </label>
 
       <form onSubmit={handleSubmit} className="space-y-4">
         <div className="grid grid-cols-1 sm:grid-cols-4 gap-4">

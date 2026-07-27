@@ -19,6 +19,7 @@ def _current() -> dict:
         "adzuna_configured": bool(settings.ADZUNA_APP_ID and settings.ADZUNA_APP_KEY),
         "jooble_configured": bool(settings.JOOBLE_API_KEYS.strip()),
         "apollo_configured": bool(settings.APOLLO_API_KEYS.strip()),
+        "calendly_url": runtime_settings.get("CALENDLY_URL", settings.CALENDLY_URL) or "",
     }
 
 
@@ -29,6 +30,7 @@ def get_settings():
 
 class SettingsPatch(BaseModel):
     enable_serpapi_enricher: Optional[bool] = None
+    calendly_url: Optional[str] = None
 
 
 @router.patch("")
@@ -37,4 +39,6 @@ def patch_settings(req: SettingsPatch):
     restarts (runtime_settings.json overrides the .env default)."""
     if req.enable_serpapi_enricher is not None:
         runtime_settings.set_value("ENABLE_SERPAPI_ENRICHER", bool(req.enable_serpapi_enricher))
+    if req.calendly_url is not None:
+        runtime_settings.set_value("CALENDLY_URL", req.calendly_url.strip())
     return _current()

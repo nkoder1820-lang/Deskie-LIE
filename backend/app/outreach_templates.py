@@ -15,6 +15,16 @@ human like a person wrote it. Sender identity: "Niket from Deskie".
 import html as _html
 import re
 
+from app import runtime_settings
+from app.config import settings as _settings
+
+
+def _calendly_url() -> str:
+    """Booking link for the "Deskie setup discovery" call, offered as the
+    secondary CTA everywhere. Empty until configured — every template then
+    silently omits the booking line rather than emitting a dead link."""
+    return (runtime_settings.get("CALENDLY_URL", _settings.CALENDLY_URL) or "").strip()
+
 ACCENT = "#4F46E5"
 ACCENT_DARK = "#3730A3"
 
@@ -213,6 +223,15 @@ def compose_outreach_email(business, score, enricher_result: dict | None = None)
     )
 
     cta_href = e(demo_url) if demo_ready else "#"
+    booking = _calendly_url()
+    booking_html = (
+        f"""  <tr><td align="center" style="padding:0 32px 22px 32px;font-size:13px;color:#555C6E;">
+    Prefer to talk it through?
+    <a href="{e(booking)}" style="color:{ACCENT};font-weight:600;text-decoration:none;">
+      Book a 15-min Deskie setup discovery &rarr;</a>
+  </td></tr>"""
+        if booking else ""
+    )
     html_body = f"""<!DOCTYPE html>
 <html><body style="margin:0;padding:0;background:#EEF0F5;font-family:-apple-system,Segoe UI,Roboto,Helvetica,Arial,sans-serif;">
 <table role="presentation" width="100%" cellpadding="0" cellspacing="0" style="background:#EEF0F5;padding:32px 12px;">
@@ -238,9 +257,10 @@ def compose_outreach_email(business, score, enricher_result: dict | None = None)
       &#127911;&nbsp; Talk to {e(agent)} &mdash; {e(biz)}'s AI receptionist
     </a>
   </td></tr>
-  <tr><td align="center" style="padding:0 32px 24px 32px;font-size:12px;color:#9AA1B2;">
+  <tr><td align="center" style="padding:0 32px 10px 32px;font-size:12px;color:#9AA1B2;">
     Live voice demo &middot; no signup &middot; already configured for {e(biz)}
   </td></tr>
+  {booking_html}
   <tr><td style="padding:0 32px 26px 32px;font-size:15px;color:#333A48;line-height:1.6;">
     If she isn't better than voicemail on your busiest day, just ignore me.
   </td></tr>
@@ -276,6 +296,14 @@ def compose_outreach_email(business, score, enricher_result: dict | None = None)
         "",
         "If she isn't better than voicemail on your busiest day, just ignore me.",
         "",
+    ]
+    if booking:
+        text_lines += [
+            "Prefer to talk it through? Book a 15-min Deskie setup discovery:",
+            booking,
+            "",
+        ]
+    text_lines += [
         "Niket · Deskie",
         "deskie70@gmail.com",
         "",
@@ -293,6 +321,7 @@ def compose_outreach_email(business, score, enricher_result: dict | None = None)
         f"and reputation already configured. Hear {agent} live"
         + (f": {demo_url}" if demo_ready else " (link coming)")
         + " — 60 seconds, no signup. If she's not better than voicemail, ignore me :)"
+        + (f" Or grab 15 mins with me here: {booking}" if booking else "")
     )
 
     return {

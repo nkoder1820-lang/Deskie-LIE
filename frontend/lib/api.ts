@@ -227,13 +227,15 @@ export const api = {
       enable_serpapi_enricher: boolean;
       serpapi_configured: boolean;
       adzuna_configured: boolean;
+      calendly_url: string;
     }>("/api/settings"),
 
-  updateSettings: (patch: { enable_serpapi_enricher?: boolean }) =>
+  updateSettings: (patch: { enable_serpapi_enricher?: boolean; calendly_url?: string }) =>
     apiFetch<{
       enable_serpapi_enricher: boolean;
       serpapi_configured: boolean;
       adzuna_configured: boolean;
+      calendly_url: string;
     }>("/api/settings", { method: "PATCH", body: JSON.stringify(patch) }),
 
   // Compose the professional HTML outreach email for a lead (preview/copy).

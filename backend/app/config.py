@@ -43,6 +43,10 @@ class Settings(BaseSettings):
     OUTREACH_FROM_EMAIL: str = ""      # e.g. "Deskie <hello@yourdomain.com>" (verified in Resend)
     OUTREACH_REPLY_TO: str = ""        # optional reply-to address
 
+    # Calendly booking link offered as the secondary CTA in every outreach
+    # channel (email, DM, call script). Set in .env or from the dashboard.
+    CALENDLY_URL: str = ""
+
     # App
     APP_ENV: str = "development"
     LOG_LEVEL: str = "INFO"

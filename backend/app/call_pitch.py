@@ -18,6 +18,8 @@ to phrases actually present in the posting.
 """
 import re
 
+from app.outreach_templates import _calendly_url
+
 # Duty patterns -> (bucket, plain-English label).
 #   "digital"  = Deskie can genuinely do this today
 #   "physical" = stays with the human hire; we say so out loud
@@ -197,6 +199,11 @@ def build_call_pitch(
     lines.append("")
     lines.append("ASK — “Can I send you that link on WhatsApp right now while we're talking? "
                  "If she's not better than your voicemail, tell me and I'll leave you alone.”")
+    booking = _calendly_url()
+    if booking:
+        lines.append("   THEN — “If she sounds right, grab 15 minutes on my calendar and I'll "
+                     "set her up on your real number — that's the Deskie setup discovery call.”")
+        lines.append(f"   Send: {booking}")
     lines.append("")
     lines.append("IF THEY SAY “we still need the person”  —  “Completely agree, and you should "
                  "hire them. This just means they answer the door, not the phone. Most desks "
