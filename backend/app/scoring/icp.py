@@ -37,6 +37,36 @@ _STAFFING_RE = re.compile(
 
 _US_TOLL_FREE = ("800", "833", "844", "855", "866", "877", "888")
 
+# B2B / corporate offices: real businesses, but nobody phones them to book an
+# appointment, so an AI receptionist has nothing to answer. They slip through
+# hiring searches in tech hubs (a VC firm hiring an "office executive").
+_B2B_RE = re.compile(
+    "|".join([
+        r"\bventures?\b", r"venture partners", r"capital partners", r"private equity",
+        r"\bvc\b", r"\bholdings?\b", r"\btechnologies\b", r"\btechnology (private|pvt|inc|llc)",
+        r"\bsoftware\b", r"\binfotech\b", r"\banalytics\b", r"\bconsultanc(y|ies)\b",
+        r"\bconsulting\b", r"\badvisory\b", r"media agency", r"advertising agency",
+        r"digital (marketing )?agency", r"\bsaas\b", r"\bfintech\b",
+    ]),
+    re.IGNORECASE,
+)
+
+# Consumer verticals where walk-in/phone customers are the whole business.
+# A clinic called "Smile Technologies" must NOT be caught by _B2B_RE.
+_CONSUMER_RE = re.compile(
+    "|".join([
+        r"dental", r"dentist", r"clinic", r"hospital", r"medical", r"health",
+        r"salon", r"spa\b", r"beauty", r"hair", r"aesthet", r"derma", r"skin",
+        r"restaurant", r"cafe", r"coffee", r"kitchen", r"bakery", r"dining",
+        r"gym", r"fitness", r"yoga", r"wellness", r"physio",
+        r"law|legal|advocate|attorney", r"real ?est|realty|property",
+        r"fertility", r"ivf", r"veterinar", r"\bvet\b", r"diagnostic", r"patholog",
+        r"hotel", r"resort", r"academy", r"school", r"tutor", r"coaching",
+        r"auto|garage|repair|service ?cent", r"optic|eye ?care", r"pharmac",
+    ]),
+    re.IGNORECASE,
+)
+
 
 def is_staffing_agency(name: str | None) -> bool:
     return bool(_STAFFING_RE.search(name or ""))
@@ -83,6 +113,12 @@ def assess_icp(
     if is_staffing_agency(name):
         excluded.append("Staffing/recruiting agency — the posting isn't their own front desk")
 
+    # Corporate/B2B office — unless the category or name says it's a consumer
+    # business, in which case the keyword is incidental ("Smile Technologies").
+    haystack = f"{name or ''} {category or ''}"
+    if _B2B_RE.search(haystack) and not _CONSUMER_RE.search(haystack):
+        excluded.append("B2B/corporate office — customers don't phone to book, so there's no front desk to answer")
+
     if _is_toll_free(phone):
         locals_exist = any(not _is_toll_free(p) for p in (phones or []) if p)
         if locals_exist:
@@ -91,6 +127,10 @@ def assess_icp(
             excluded.append("Only toll-free numbers — a national call center, not a local front desk")
 
     rc = review_count or 0
+    if review_count is None and not website:
+        # No reviews and no site: nothing suggests a public-facing operation
+        # customers actually call.
+        borderline.append("No public reviews or website — may not be a customer-facing location")
     if rc > 20000:
         excluded.append(f"{rc:,} reviews — mega operation, far beyond an SMB")
     elif rc > 5000:

@@ -52,6 +52,23 @@ def _clean_text(v: str | None, limit: int = 1200) -> str:
     return re.sub(r"\s+", " ", t).strip()[:limit]
 
 
+def _title_is_relevant(title: str, roles: list[str]) -> bool:
+    """Job boards return loosely-related matches: a "receptionist" query in a
+    tech hub comes back with "Customer Experience Associate", "Operations
+    Executive" and similar back-office roles that are NOT a front desk. Those
+    companies then get pulled in as leads whose hiring signal doesn't actually
+    mean what we claim it means. Keep only postings whose title matches a
+    front-desk keyword or one of the searched titles."""
+    t = (title or "").lower()
+    if any(k in t for k in _RECEPTION_KEYWORDS):
+        return True
+    for r in roles:
+        words = [w for w in re.split(r"\W+", r.lower()) if len(w) > 2]
+        if words and all(w in t for w in words):
+            return True
+    return False
+
+
 def _split_roles(role: str | list[str]) -> list[str]:
     """One title or many — accepts a list or a comma/newline-separated string.
     Deduped, order preserved; falls back to 'receptionist'."""
@@ -161,7 +178,12 @@ class HiringDiscoveryAgent:
             seen_posts.add(key)
             deduped.append(p)
         logger.info(f"[HiringDiscovery] {len(postings)} postings -> {len(deduped)} unique across {len(roles)} role(s)")
-        postings = deduped
+        relevant = [p for p in deduped if _title_is_relevant(p.get("title", ""), roles)]
+        dropped = len(deduped) - len(relevant)
+        if dropped:
+            logger.info(f"[HiringDiscovery] dropped {dropped} off-target postings "
+                        f"(titles unrelated to a front desk), {len(relevant)} kept")
+        postings = relevant or deduped  # never end up with nothing to work from
 
         # Interleave providers round-robin so both contribute companies even
         # when max_results is small (otherwise whichever provider's postings
