@@ -20,6 +20,7 @@ from app.config import settings
 from app.database import get_db
 from app.models.business import Business, ResearchResult
 from app.outreach_templates import compose_outreach_email
+from app.call_pitch import build_call_pitch
 
 logger = logging.getLogger(__name__)
 router = APIRouter(prefix="/api/outreach", tags=["Outreach"])
@@ -49,11 +50,26 @@ def compose_email(business_id: str, db: Session = Depends(get_db)):
         .filter_by(business_id=biz_uuid, agent_name="lead_enricher_agent")
         .first()
     )
-    return compose_outreach_email(
-        business,
-        business.lead_score,
-        enricher.result_json if enricher else None,
-    )
+    enricher_json = enricher.result_json if enricher else None
+    composed = compose_outreach_email(business, business.lead_score, enricher_json)
+
+    # Cold-call script, tailored to this lead's actual job posting: which
+    # duties stay with their human hire vs which ones Deskie takes over.
+    # Only meaningful for hiring-discovered leads.
+    if (business.source or "").endswith("_jobs"):
+        phones = " ".join([business.phone or ""] + (business.phones or []))
+        composed["call_pitch"] = build_call_pitch(
+            business_name=business.name,
+            role=(enricher_json or {}).get("hiring_evidence", [""])[0] or "receptionist",
+            enricher_result=enricher_json,
+            city=business.city,
+            country_is_india="+91" in phones,
+            agent_name="Priya" if "+91" in phones else "Emily",
+            demo_url=business.demo_url,
+        )
+    else:
+        composed["call_pitch"] = None
+    return composed
 
 
 class SendEmailRequest(BaseModel):

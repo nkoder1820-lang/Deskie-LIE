@@ -42,6 +42,16 @@ _RECEPTION_KEYWORDS = (
 )
 
 
+def _clean_text(v: str | None, limit: int = 1200) -> str:
+    """Provider snippets arrive with HTML and entities — flatten to plain text
+    so the call-pitch builder can quote the posting's own wording."""
+    t = re.sub(r"<[^>]+>", " ", v or "")
+    t = (t.replace("&amp;", "&").replace("&nbsp;", " ")
+          .replace("&#39;", "'").replace("&quot;", '"')
+          .replace("&lt;", "<").replace("&gt;", ">"))
+    return re.sub(r"\s+", " ", t).strip()[:limit]
+
+
 def _split_roles(role: str | list[str]) -> list[str]:
     """One title or many — accepts a list or a comma/newline-separated string.
     Deduped, order preserved; falls back to 'receptionist'."""
@@ -244,6 +254,7 @@ class HiringDiscoveryAgent:
                     "via": "Adzuna",
                     "url": j.get("redirect_url"),
                     "provider": "adzuna",
+                    "description": _clean_text(j.get("description")),
                 })
             if len(results) < 50:
                 break
@@ -287,6 +298,7 @@ class HiringDiscoveryAgent:
                     "via": (j.get("source") or "Jooble").strip(),
                     "url": j.get("link"),
                     "provider": "jooble",
+                    "description": _clean_text(j.get("snippet")),
                 })
             if not jobs:
                 break
@@ -328,6 +340,7 @@ class HiringDiscoveryAgent:
                     "via": (j.get("via") or "").removeprefix("via ").strip() or "Google Jobs",
                     "url": url,
                     "provider": "google",
+                    "description": _clean_text(j.get("description")),
                 })
             token = (data.get("serpapi_pagination") or {}).get("next_page_token")
             if not jobs or not token:
@@ -361,6 +374,7 @@ class HiringDiscoveryAgent:
         postings we already hold — the orchestrator skips SerpAPI verification."""
         evidence: list[str] = []
         sources: list[dict] = []
+        descriptions: list[dict] = []
         reception_hit = any(k in role.lower() for k in _RECEPTION_KEYWORDS)
         for j in jobs[:5]:
             title = j["title"]
@@ -370,11 +384,17 @@ class HiringDiscoveryAgent:
                 reception_hit = True
             if j.get("url"):
                 sources.append({"title": f"{title} — {j['company_name']}"[:120], "url": j["url"]})
+            if j.get("description"):
+                descriptions.append({"title": title, "text": j["description"]})
         return {
             "is_hiring_receptionist": reception_hit,
             "is_hiring_any": True,
             "hiring_evidence": evidence,
             "hiring_sources": sources[:3],
+            # The posting's own words — used to tailor the cold-call pitch to
+            # the actual duties listed (and to separate the physical ones,
+            # which stay with the human hire, from the phone/digital ones).
+            "hiring_descriptions": descriptions[:3],
             "runs_google_ads": False,
             "ads_evidence": [],
             "ads_sources": [],

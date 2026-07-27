@@ -234,6 +234,14 @@ export const api = {
       template: string;
       demo_ready: boolean;
       demo_is_local: boolean;
+      call_pitch: {
+        script: string;
+        digital_duties: string[];
+        physical_duties: string[];
+        persona: string;
+        has_jd: boolean;
+        role_title: string;
+      } | null;
     }>(`/api/outreach/compose/${businessId}`),
 
   // Outreach sending

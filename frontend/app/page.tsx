@@ -14,6 +14,14 @@ type ComposedEmail = {
   template: string;
   demo_ready: boolean;
   demo_is_local: boolean;
+  call_pitch: {
+    script: string;
+    digital_duties: string[];
+    physical_duties: string[];
+    persona: string;
+    has_jd: boolean;
+    role_title: string;
+  } | null;
 };
 
 const TO_KIND_LABEL: Record<string, string> = {
@@ -669,6 +677,49 @@ export default function DashboardPage() {
                 className="w-full h-[520px] border-0"
               />
             </div>
+
+            {emailPreview.data.call_pitch && (
+              <div className="px-5 py-3 border-t border-white/10 bg-emerald-500/[0.04]">
+                <div className="flex items-center justify-between gap-2 mb-2">
+                  <p className="text-[11px] uppercase tracking-wide text-emerald-400/80">
+                    ☎️ Cold-call script — tailored to their “{emailPreview.data.call_pitch.role_title}” posting
+                    {!emailPreview.data.call_pitch.has_jd && (
+                      <span className="text-slate-500 normal-case"> (no JD text — generic duties used)</span>
+                    )}
+                  </p>
+                  <button
+                    onClick={() => copyToClipboard("pitch", emailPreview.data.call_pitch!.script)}
+                    className="shrink-0 px-2.5 py-1 text-xs rounded-full bg-emerald-600/80 hover:bg-emerald-500 text-white font-medium transition-colors"
+                  >
+                    {copied === "pitch" ? "✓ Copied" : "Copy script"}
+                  </button>
+                </div>
+                {(emailPreview.data.call_pitch.physical_duties.length > 0 ||
+                  emailPreview.data.call_pitch.digital_duties.length > 0) && (
+                  <div className="grid sm:grid-cols-2 gap-2 mb-2">
+                    <div className="rounded-lg border border-white/10 bg-white/[0.03] p-2.5">
+                      <p className="text-[10px] uppercase tracking-wide text-slate-500 mb-1">
+                        Stays with their hire (physical)
+                      </p>
+                      <p className="text-xs text-slate-300">
+                        {emailPreview.data.call_pitch.physical_duties.join(" · ") || "— none listed —"}
+                      </p>
+                    </div>
+                    <div className="rounded-lg border border-emerald-500/25 bg-emerald-500/[0.06] p-2.5">
+                      <p className="text-[10px] uppercase tracking-wide text-emerald-400/80 mb-1">
+                        Deskie takes over (phone/digital)
+                      </p>
+                      <p className="text-xs text-slate-200">
+                        {emailPreview.data.call_pitch.digital_duties.join(" · ")}
+                      </p>
+                    </div>
+                  </div>
+                )}
+                <pre className="text-xs text-slate-300 whitespace-pre-wrap font-sans leading-relaxed max-h-56 overflow-auto rounded-lg bg-black/20 p-3">
+                  {emailPreview.data.call_pitch.script}
+                </pre>
+              </div>
+            )}
 
             {(emailPreview.data.channels.length > 0 || !emailPreview.data.to) && (
               <div className="px-5 py-3 border-t border-white/10 bg-white/[0.03]">
